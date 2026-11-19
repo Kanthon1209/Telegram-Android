@@ -282,6 +282,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     public ArrayList<INavigationLayout> sheetFragmentsStack = new ArrayList<>();
 
     private boolean finished;
+    /** kgram: LaunchActivity unfinished init; skip lifecycle that needs actionBarLayout. */
+    private boolean kgramSessionRedirect;
     private String videoPath;
     private String voicePath;
     private CharSequence sendingText;
@@ -417,6 +419,16 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
         instance = this;
         ApplicationLoader.postInitApplication();
+        // kgram: OpenIM session → activate synthetic TG user, then continue into real MainTabs/DialogsActivity.
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(this)
+                && (getIntent() == null || !getIntent().getBooleanExtra("kgram_force_login", false))) {
+            org.telegram.messenger.kgram.KgramTgBridge.activateFromSession(this);
+        } else if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && getIntent() != null && getIntent().getBooleanExtra("kgram_force_login", false)) {
+            org.telegram.messenger.kgram.KgramSession.clear(this);
+            org.telegram.messenger.kgram.KgramTgBridge.clearActivation();
+        }
         AndroidUtilities.checkDisplaySize(this, getResources().getConfiguration());
         currentAccount = UserConfig.selectedAccount;
         if (BuildVars.DEBUG_VERSION || BuildVars.DEBUG_PRIVATE_VERSION) {
@@ -1120,6 +1132,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     }
 
     private BaseFragment getClientNotActivatedFragment() {
+        // kgram: skip IntroActivity welcome pages — go straight to phone login.
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH) {
+            return new LoginActivity();
+        }
         if (LoginActivity.loadCurrentState(false, currentAccount).getInt("currentViewNum", 0) != 0) {
             return new LoginActivity();
         }
@@ -1292,7 +1308,14 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 layersActionBarLayout.rebuildLogout();
                 rightActionBarLayout.rebuildLogout();
             }
-            presentFragment(new IntroActivity().setOnLogout());
+            // kgram: after logout, clear OpenIM session and skip intro.
+            if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH) {
+                org.telegram.messenger.kgram.KgramSession.clear(ApplicationLoader.applicationContext);
+                org.telegram.messenger.kgram.KgramTgBridge.clearActivation();
+                presentFragment(new LoginActivity());
+            } else {
+                presentFragment(new IntroActivity().setOnLogout());
+            }
         }
     }
 
@@ -6897,6 +6920,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onPause() {
         super.onPause();
+        if (kgramSessionRedirect) {
+            isResumed = false;
+            return;
+        }
         isResumed = false;
         WidgetMedia.onAppPaused(true);
         PipCoordinator.getInstance().onActivityPause(this);
@@ -6954,6 +6981,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onStart() {
         super.onStart();
+        if (kgramSessionRedirect) {
+            isStarted = true;
+            return;
+        }
         isStarted = true;
         PipCoordinator.getInstance().onActivityStart(this);
         Browser.bindCustomTabsService(this);
@@ -6967,6 +6998,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onStop() {
         super.onStop();
+        if (kgramSessionRedirect) {
+            isStarted = false;
+            return;
+        }
         GramWalletStorageAuth.onActivityStopped(this);
         isStarted = false;
         PipCoordinator.getInstance().onActivityStop(this);
@@ -7093,6 +7128,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
     @Override
     protected void onDestroy() {
+        if (kgramSessionRedirect) {
+            isActive = false;
+            activeInstanceCount--;
+            instance = null;
+            super.onDestroy();
+            return;
+        }
         GramWalletStorageAuth.onActivityDestroyed(this);
         PipCoordinator.getInstance().onActivityDestroy(this);
         isActive = false;
@@ -7209,6 +7251,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     @Override
     protected void onResume() {
         super.onResume();
+        if (kgramSessionRedirect) {
+            isResumed = true;
+            return;
+        }
         WidgetMedia.onAppPaused(false);
         isResumed = true;
         PipCoordinator.getInstance().onActivityResume(this);
@@ -8478,6 +8524,16 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         String title = null;
         int titleId = 0;
         Runnable action = null;
+        // kgram OpenIM: never paint Waiting/Connecting/Updating over Dialogs/Chat titles.
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH) {
+            currentConnectionState = ConnectionsManager.ConnectionStateConnected;
+            try {
+                ConnectionsManager.getInstance(currentAccount).forceOpenImUiConnected();
+            } catch (Throwable ignore) {
+            }
+            actionBarLayout.setTitleOverlayText(null, 0, null);
+            return;
+        }
         currentConnectionState = ConnectionsManager.getInstance(currentAccount).getConnectionState();
         if (currentConnectionState == ConnectionsManager.ConnectionStateWaitingForNetwork) {
             title = "WaitingForNetwork";

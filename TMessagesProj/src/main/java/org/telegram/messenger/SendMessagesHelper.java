@@ -4439,6 +4439,11 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
     }
 
     public void sendMessage(SendMessageParams sendMessageParams) {
+        // kgram: route plain text to OpenIM for activated OpenIM sessions
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramTgBridge.sendTextOpenIM(currentAccount, sendMessageParams)) {
+            return;
+        }
         final SendMessageChatArguments sendMessageChatArguments = sendMessageParams.sendMessageChatArguments != null ?
                 sendMessageParams.sendMessageChatArguments : SendMessageChatArguments.EMPTY;
         String message = sendMessageParams.message;

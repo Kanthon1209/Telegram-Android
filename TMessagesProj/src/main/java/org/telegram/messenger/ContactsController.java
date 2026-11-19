@@ -1509,6 +1509,13 @@ public class ContactsController extends BaseController {
         synchronized (loadContactsSync) {
             loadingContacts = true;
         }
+        // kgram: OpenIM friends/users instead of MTProto contacts
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(ApplicationLoader.applicationContext)) {
+            if (org.telegram.messenger.kgram.KgramTgBridge.loadContactsOpenIM(currentAccount)) {
+                return;
+            }
+        }
         if (fromCache) {
             if (BuildVars.LOGS_ENABLED) {
                 FileLog.d("load contacts from cache");

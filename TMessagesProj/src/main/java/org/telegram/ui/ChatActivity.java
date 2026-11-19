@@ -3338,6 +3338,12 @@ public class ChatActivity extends BaseFragment implements
 
     @Override
     public void onFragmentDestroy() {
+        try {
+            if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH && dialog_id > 0) {
+                org.telegram.messenger.kgram.KgramTgBridge.watchDialogForReadReceipts(dialog_id, false);
+            }
+        } catch (Throwable ignore) {
+        }
         super.onFragmentDestroy();
         if (messageMetricsView != null) {
             messageMetricsView.finish();
@@ -3704,6 +3710,8 @@ public class ChatActivity extends BaseFragment implements
         actionBar.setAddToContainer(false);
         actionBar.setCastShadows(false);
         actionBar.setBackground(null);
+        // OpenIM: never allow MTProto "Waiting for network" title overlay on chat ActionBar.
+        actionBar.setAllowOverlayTitle(false);
         // actionBar.setOccupyStatusBar(false);
         if (inPreviewMode) {
             actionBar.setBackButtonDrawable(null);
@@ -21425,8 +21433,16 @@ public class ChatActivity extends BaseFragment implements
                 waitingForReplyMessageLoad = true;
                 waitingForLoad.add(lastLoadIndex);
                 getMessagesController().loadMessages(dialog_id, mergeDialogId, false, AndroidUtilities.isTablet() ? 30 : 20, 0, 0, true, 0, classGuid, 2, 0, chatMode, threadMessageId, replyMaxReadId, lastLoadIndex++, isTopic);
+                return;
             }
-            return;
+            // kgram: local cache restore consumes waitingForLoad; still accept OpenIM cloud history for this chat.
+            if (!(org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                    && !isCache
+                    && mode == MODE_DEFAULT
+                    && dialog_id > 0
+                    && guid == classGuid)) {
+                return;
+            }
         } else if (!doNotRemoveLoadIndex) {
             waitingForLoad.remove(index);
         }
@@ -22264,10 +22280,22 @@ public class ChatActivity extends BaseFragment implements
                         endReached[loadIndex] = true;
                     }
                     if (load_type != 2) {
-                        cacheEndReached[loadIndex] = true;
+                        // kgram: OpenIM disk cache is a hint page; never seal cache-end while bridge says more exists.
+                        if (!(org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH && dialog_id > 0 && !isEnd)) {
+                            cacheEndReached[loadIndex] = true;
+                        }
                     }
                 } else if (load_type != 2 || messArr.size() == 0 && messages.isEmpty()) {
-                    endReached[loadIndex] = true;
+                    // kgram: TG seals end on size<count; OpenIM pages can be short (text filter / seq holes).
+                    // Older history is REST pull_msg_by_seq — trust bridge isEnd only.
+                    if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH && dialog_id > 0) {
+                        if (isEnd) {
+                            endReached[loadIndex] = true;
+                            cacheEndReached[loadIndex] = true;
+                        }
+                    } else {
+                        endReached[loadIndex] = true;
+                    }
                 }
             }
             loading = false;
@@ -30659,6 +30687,23 @@ public class ChatActivity extends BaseFragment implements
     @Override
     public void onResume() {
         super.onResume();
+        try {
+            if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH && dialog_id > 0) {
+                org.telegram.messenger.kgram.KgramTgBridge.watchDialogForReadReceipts(dialog_id, true);
+                try {
+                    getConnectionsManager().forceOpenImUiConnected();
+                } catch (Throwable ignore2) {
+                }
+                if (actionBar != null) {
+                    actionBar.setAllowOverlayTitle(false);
+                    actionBar.setTitleOverlayText(null, 0, null);
+                }
+                if (avatarContainer != null) {
+                    avatarContainer.updateSubtitle(true);
+                }
+            }
+        } catch (Throwable ignore) {
+        }
         checkShowBlur(false);
         activityResumeTime = System.currentTimeMillis();
         if (openImport && getSendMessagesHelper().getImportingHistory(dialog_id) != null) {
@@ -30874,6 +30919,12 @@ public class ChatActivity extends BaseFragment implements
 
     @Override
     public void onPause() {
+        try {
+            if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH && dialog_id > 0) {
+                org.telegram.messenger.kgram.KgramTgBridge.watchDialogForReadReceipts(dialog_id, false);
+            }
+        } catch (Throwable ignore) {
+        }
         super.onPause();
         scrolling = false;
         if (scrimPopupWindow != null) {

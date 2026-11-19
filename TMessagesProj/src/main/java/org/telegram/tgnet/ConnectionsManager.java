@@ -31,6 +31,7 @@ import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.BaseController;
 import org.telegram.messenger.BuildVars;
+import org.telegram.messenger.kgram.KgramServerConfig;
 import org.telegram.messenger.CaptchaController;
 import org.telegram.messenger.EmuDetector;
 import org.telegram.messenger.FileLoadOperation;
@@ -196,6 +197,12 @@ public class ConnectionsManager extends BaseController {
 
     private static int lastClassGuid = 1;
     
+
+    /** kgram: when OpenIM auth is on, never talk to Telegram official DCs. */
+    private static boolean kgramBlocksTelegramDc() {
+        return KgramServerConfig.USE_OPENIM_AUTH;
+    }
+
     private static final ConnectionsManager[] Instance = new ConnectionsManager[UserConfig.MAX_ACCOUNT_COUNT];
     public static ConnectionsManager getInstance(int num) {
         ConnectionsManager localInstance = Instance[num];
@@ -213,6 +220,10 @@ public class ConnectionsManager extends BaseController {
     public ConnectionsManager(int instance) {
         super(instance);
         connectionState = native_getConnectionState(currentAccount);
+        if (kgramBlocksTelegramDc()) {
+            connectionState = ConnectionStateConnected;
+            isUpdating = false;
+        }
         String deviceModel;
         String systemLangCode;
         String langCode;
@@ -420,6 +431,24 @@ public class ConnectionsManager extends BaseController {
     }
 
     private void sendRequestInternal(TLObject object, RequestDelegate onComplete, RequestDelegateTimestamp onCompleteTimestamp, QuickAckDelegate onQuickAck, WriteToSocketDelegate onWriteToSocket, int flags, int datacenterId, int connectionType, boolean immediate, int requestToken) {
+        if (kgramBlocksTelegramDc()) {
+            if (BuildVars.LOGS_ENABLED) {
+                FileLog.d("kgram: drop MTProto request (OpenIM-only) " + object + " token=" + requestToken);
+            }
+            if (onComplete != null || onCompleteTimestamp != null) {
+                Utilities.stageQueue.postRunnable(() -> {
+                    TLRPC.TL_error error = new TLRPC.TL_error();
+                    error.code = -1000;
+                    error.text = "KGRAM_OPENIM_ONLY";
+                    if (onComplete != null) {
+                        onComplete.run(null, error);
+                    } else {
+                        onCompleteTimestamp.run(null, error, 0);
+                    }
+                });
+            }
+            return;
+        }
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("send request " + object + " with token = " + requestToken);
         }
@@ -646,10 +675,31 @@ public class ConnectionsManager extends BaseController {
     }
 
     public int getConnectionState() {
+        // kgram OpenIM-only: MTProto is intentionally paused, but UI should not show
+        // "Waiting for network" / Connecting / Updating — OpenIM REST/WS is the real transport.
+        if (kgramBlocksTelegramDc()) {
+            return ConnectionStateConnected;
+        }
         if (connectionState == ConnectionStateConnected && isUpdating) {
             return ConnectionStateUpdating;
         }
         return connectionState;
+    }
+
+    /** Force Java+UI connection state to Connected and notify listeners (OpenIM mode). */
+    public void forceOpenImUiConnected() {
+        if (!kgramBlocksTelegramDc()) {
+            return;
+        }
+        final boolean changed = connectionState != ConnectionStateConnected || isUpdating;
+        connectionState = ConnectionStateConnected;
+        isUpdating = false;
+        if (!changed) {
+            return;
+        }
+        AndroidUtilities.runOnUIThread(() -> AccountInstance.getInstance(currentAccount)
+                .getNotificationCenter()
+                .postNotificationName(NotificationCenter.didUpdateConnectionState));
     }
 
     public void setUserId(long id) {
@@ -657,6 +707,18 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void checkConnection() {
+        if (kgramBlocksTelegramDc()) {
+            if (BuildVars.LOGS_ENABLED) {
+                FileLog.d("kgram: skip TG DC checkConnection; pause MTProto only");
+            }
+            try {
+                native_pauseNetwork(currentAccount);
+            } catch (Throwable ignore) {
+            }
+            connectionState = ConnectionStateConnected;
+            isUpdating = false;
+            return;
+        }
         byte selectedStrategy = getIpStrategy();
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("selected ip strategy " + selectedStrategy);
@@ -712,7 +774,22 @@ public class ConnectionsManager extends BaseController {
             packageId = "";
         }
 
-        native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, ApplicationLoader.isNetworkOnline(), ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
+        // OpenIM-only: init native structs, pause MTProto sockets, but keep Java UI state Connected.
+        // Do NOT mark native network unavailable — that floods WaitingForNetwork into UI listeners.
+        boolean networkOnlineForInit = ApplicationLoader.isNetworkOnline();
+        native_init(currentAccount, version, layer, apiId, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, logPath, regId, cFingerprint, installer, packageId, timezoneOffset, userId, userPremium, enablePushConnection, networkOnlineForInit, ApplicationLoader.getCurrentNetworkType(), SharedConfig.measureDevicePerformanceClass());
+        if (kgramBlocksTelegramDc()) {
+            try {
+                native_pauseNetwork(currentAccount);
+            } catch (Throwable ignore) {
+            }
+            connectionState = ConnectionStateConnected;
+            isUpdating = false;
+            AndroidUtilities.runOnUIThread(() -> AccountInstance.getInstance(currentAccount)
+                    .getNotificationCenter()
+                    .postNotificationName(NotificationCenter.didUpdateConnectionState));
+            return;
+        }
         checkConnection();
     }
 
@@ -758,6 +835,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void resumeNetworkMaybe() {
+        if (kgramBlocksTelegramDc()) {
+            return;
+        }
         native_resumeNetwork(currentAccount, true);
     }
 
@@ -823,7 +903,16 @@ public class ConnectionsManager extends BaseController {
                 getContactsController().checkContacts();
             }
             lastPauseTime = 0;
-            native_resumeNetwork(currentAccount, false);
+            if (kgramBlocksTelegramDc()) {
+                try {
+                    native_pauseNetwork(currentAccount);
+                } catch (Throwable ignore) {
+                }
+                connectionState = ConnectionStateConnected;
+                isUpdating = false;
+            } else {
+                native_resumeNetwork(currentAccount, false);
+            }
         }
     }
 
@@ -862,7 +951,9 @@ public class ConnectionsManager extends BaseController {
 
     public static void onConnectionStateChanged(final int state, final int currentAccount) {
         AndroidUtilities.runOnUIThread(() -> {
-            getInstance(currentAccount).connectionState = state;
+            // Ignore native offline/connecting while OpenIM mode owns the transport.
+            int uiState = kgramBlocksTelegramDc() ? ConnectionStateConnected : state;
+            getInstance(currentAccount).connectionState = uiState;
             AccountInstance.getInstance(currentAccount).getNotificationCenter().postNotificationName(NotificationCenter.didUpdateConnectionState);
         });
     }
@@ -1077,6 +1168,15 @@ public class ConnectionsManager extends BaseController {
 
     public void setIsUpdating(final boolean value) {
         AndroidUtilities.runOnUIThread(() -> {
+            // OpenIM: never surface "Updating..." from MTProto getDifference.
+            if (kgramBlocksTelegramDc()) {
+                if (isUpdating) {
+                    isUpdating = false;
+                    connectionState = ConnectionStateConnected;
+                    AccountInstance.getInstance(currentAccount).getNotificationCenter().postNotificationName(NotificationCenter.didUpdateConnectionState);
+                }
+                return;
+            }
             if (isUpdating == value) {
                 return;
             }

@@ -180,6 +180,17 @@ public class ChangeNameActivity extends BaseFragment {
         if (currentUser.first_name != null && currentUser.first_name.equals(newFirst) && currentUser.last_name != null && currentUser.last_name.equals(newLast)) {
             return;
         }
+        // kgram / OpenIM: single nickname field (first + last joined); skip MTProto updateProfile.
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(org.telegram.messenger.ApplicationLoader.applicationContext)) {
+            String nick = (newFirst + " " + newLast).trim();
+            if (nick.length() == 0) {
+                nick = newFirst;
+            }
+            org.telegram.messenger.kgram.KgramTgBridge.updateSelfNickname(currentAccount, nick, null);
+            finishFragment();
+            return;
+        }
         TL_account.updateProfile req = new TL_account.updateProfile();
         req.flags = 3;
         currentUser.first_name = req.first_name = newFirst;

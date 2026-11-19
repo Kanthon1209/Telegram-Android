@@ -9700,9 +9700,49 @@ public class MessagesController extends BaseController implements NotificationCe
         return loadingDialogs.get(folderId);
     }
 
-    public boolean isServerDialogsEndReached(int folderId) {
+        public boolean isServerDialogsEndReached(int folderId) {
         return serverDialogsEndReached.get(folderId);
     }
+
+    /** kgram/OpenIM: mark folder dialogs load finished without MTProto. */
+    public void kgramMarkDialogsLoaded(int folderId) {
+        // Without this, sortDialogs skips every dialog that has a preview message
+        // because dialogsLoadedTillDate defaults to Integer.MAX_VALUE.
+        dialogsLoadedTillDate = Integer.MIN_VALUE;
+        loadingDialogs.put(folderId, false);
+        dialogsEndReached.put(folderId, true);
+        serverDialogsEndReached.put(folderId, true);
+    }
+
+    /** kgram/OpenIM: replace dialog list from OpenIM bridge. */
+    public void kgramReplaceAllDialogs(ArrayList<TLRPC.Dialog> dialogs) {
+        dialogsLoadedTillDate = Integer.MIN_VALUE;
+        allDialogs.clear();
+        // Clear folder buckets so sortDialogs rebuilds a clean visible list.
+        for (int a = 0; a < dialogsByFolder.size(); a++) {
+            ArrayList<TLRPC.Dialog> arrayList = dialogsByFolder.valueAt(a);
+            if (arrayList != null) {
+                arrayList.clear();
+            }
+        }
+        if (dialogs != null) {
+            allDialogs.addAll(dialogs);
+            for (int i = 0; i < dialogs.size(); i++) {
+                TLRPC.Dialog d = dialogs.get(i);
+                if (d != null) {
+                    dialogs_dict.put(d.id, d);
+                }
+            }
+        }
+        try {
+            // Pass non-null chatsDict so sortDialogs does not early-return when
+            // ApplicationLoader.mainInterfacePaused is still true after login.
+            sortDialogs(new LongSparseArray<>());
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+    }
+
 
     public boolean hasHiddenArchive() {
         return SharedConfig.archiveHidden && dialogs_dict.get(DialogObject.makeFolderDialogId(1)) != null;
@@ -11550,6 +11590,14 @@ public class MessagesController extends BaseController implements NotificationCe
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("load messages in chat " + dialogId + " topic_id " + threadMessageId + " count " + count + " max_id " + max_id + " cache " + fromCache + " mindate = " + minDate + " guid " + classGuid + " load_type " + load_type + " last_message_id " + last_message_id + " mode " + mode + " index " + loadIndex + " firstUnread " + first_unread + " unread_count " + unread_count + " last_date " + last_date + " queryFromServer " + queryFromServer + " isTopic " + isTopic);
         }
+        // kgram: OpenIM history for 1:1 chats
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(ApplicationLoader.applicationContext)
+                && dialogId > 0 && mode == 0 && threadMessageId == 0) {
+            if (org.telegram.messenger.kgram.KgramTgBridge.loadMessagesOpenIM(currentAccount, dialogId, count, max_id, classGuid, load_type, last_message_id, mode, loadIndex, fromCache)) {
+                return;
+            }
+        }
         if (BuildVars.LOGS_ENABLED && loaderLogger == null && mode == 0) {
             loaderLogger = new Timer("MessageLoaderLogger dialogId=" + dialogId + " index=" + loadIndex + " count=" + count);
         }
@@ -12506,6 +12554,14 @@ public class MessagesController extends BaseController implements NotificationCe
         getNotificationCenter().postNotificationName(NotificationCenter.dialogsNeedReload);
         if (BuildVars.LOGS_ENABLED) {
             FileLog.d("folderId = " + folderId + " load cacheOffset = " + offset + " count = " + count + " cache = " + fromCache);
+        }
+        // kgram: OpenIM dialogs instead of MTProto
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(ApplicationLoader.applicationContext)
+                && folderId == 0) {
+            if (org.telegram.messenger.kgram.KgramTgBridge.loadDialogsOpenIM(currentAccount, folderId)) {
+                return;
+            }
         }
         if (fromCache) {
             getMessagesStorage().getDialogs(folderId, offset == 0 ? 0 : nextDialogsCacheOffset.get(folderId, 0), count, folderId == 0 && offset == 0);
@@ -14593,6 +14649,14 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     private void completeReadTask(ReadTask task) {
+        // kgram/OpenIM: mark conversation read on OpenIM instead of MTProto
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(ApplicationLoader.applicationContext)
+                && task != null && task.dialogId > 0 && task.replyId == 0) {
+            if (org.telegram.messenger.kgram.KgramTgBridge.markDialogAsReadOpenIM(currentAccount, task.dialogId, task.maxId)) {
+                return;
+            }
+        }
         if (task.replyId != 0 && task.monoForumPeerId == 0) {
             TLRPC.TL_messages_readDiscussion req = new TLRPC.TL_messages_readDiscussion();
             req.msg_id = (int) task.replyId;
@@ -14709,6 +14773,12 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void markDialogAsRead(long dialogId, int maxPositiveId, int maxNegativeId, int maxDate, boolean popup, long threadId, int countDiff, boolean readNow, int scheduledCount) {
+        // kgram/OpenIM: also push hasReadSeq when chat UI marks inbox read
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(ApplicationLoader.applicationContext)
+                && dialogId > 0 && threadId == 0 && maxPositiveId > 0) {
+            org.telegram.messenger.kgram.KgramTgBridge.markDialogAsReadOpenIM(currentAccount, dialogId, maxPositiveId);
+        }
         boolean createReadTask;
 
         if (threadId != 0) {

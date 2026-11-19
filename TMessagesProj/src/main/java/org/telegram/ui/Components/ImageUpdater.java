@@ -909,11 +909,19 @@ public class ImageUpdater implements NotificationCenter.NotificationCenterDelega
                     }
                     isVideo = false;
                 }
-                NotificationCenter.getInstance(currentAccount).addObserver(ImageUpdater.this, NotificationCenter.fileUploaded);
-                NotificationCenter.getInstance(currentAccount).addObserver(ImageUpdater.this, NotificationCenter.fileUploadProgressChanged);
-                NotificationCenter.getInstance(currentAccount).addObserver(ImageUpdater.this, NotificationCenter.fileUploadFailed);
-                if (uploadingImage != null) {
-                    FileLoader.getInstance(currentAccount).uploadFile(uploadingImage, false, true, ConnectionsManager.FileTypePhoto);
+                // kgram OpenIM: do not upload avatar bytes to Telegram DC — ProfileActivity
+                // preview callback (didUploadPhoto null InputFile) kicks OpenIM object upload.
+                boolean openImAvatar = org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                        && org.telegram.messenger.kgram.KgramSession.hasSession(org.telegram.messenger.ApplicationLoader.applicationContext);
+                if (!openImAvatar) {
+                    NotificationCenter.getInstance(currentAccount).addObserver(ImageUpdater.this, NotificationCenter.fileUploaded);
+                    NotificationCenter.getInstance(currentAccount).addObserver(ImageUpdater.this, NotificationCenter.fileUploadProgressChanged);
+                    NotificationCenter.getInstance(currentAccount).addObserver(ImageUpdater.this, NotificationCenter.fileUploadFailed);
+                    if (uploadingImage != null) {
+                        FileLoader.getInstance(currentAccount).uploadFile(uploadingImage, false, true, ConnectionsManager.FileTypePhoto);
+                    }
+                } else {
+                    uploadingImage = null; // prevent stuck isUploadingImage(); OpenIM path owns progress
                 }
             }
             if (delegate != null) {

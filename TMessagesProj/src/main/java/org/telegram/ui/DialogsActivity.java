@@ -2241,6 +2241,26 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 }
             }
             boolean result = super.onTouchEvent(e);
+            // kgram OpenIM: treat top overscroll release as conversation pull-to-refresh.
+            if (org.telegram.messenger.kgram.KgramTgBridge.enabled()
+                    && parentPage.dialogsType == DIALOGS_TYPE_DEFAULT
+                    && folderId == 0 && communityId == 0
+                    && (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)) {
+                float offset = getViewOffset();
+                if (offset > dp(48)) {
+                    try {
+                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING);
+                    } catch (Exception ignored) {}
+                    org.telegram.messenger.kgram.KgramTgBridge.forceReloadDialogsOpenIM(currentAccount, true);
+                }
+                if (offset != 0) {
+                    ValueAnimator valueAnimator = ValueAnimator.ofFloat(offset, 0f);
+                    valueAnimator.addUpdateListener(animation -> setViewsOffset((float) animation.getAnimatedValue()));
+                    valueAnimator.setDuration(220);
+                    valueAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
+                    valueAnimator.start();
+                }
+            }
             if (parentPage.dialogsType == DIALOGS_TYPE_DEFAULT && (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) && parentPage.archivePullViewState == ARCHIVE_ITEM_STATE_HIDDEN && hasHiddenArchive()) {
                 LinearLayoutManager layoutManager = (LinearLayoutManager) getLayoutManager();
                 int currentPosition = layoutManager.findFirstVisibleItemPosition();
@@ -3107,6 +3127,18 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
     @Override
     public void setTitleOverlayText(String title, int titleId, Runnable action) {
+        // kgram OpenIM: drop MTProto connection overlays on dialogs title / stories subtitle.
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && titleId != 0
+                && (titleId == R.string.WaitingForNetwork
+                || titleId == R.string.Connecting
+                || titleId == R.string.Updating
+                || titleId == R.string.ConnectingToProxy
+                || titleId == R.string.ConnectingToProxyWithDots)) {
+            title = null;
+            titleId = 0;
+            action = null;
+        }
         super.setTitleOverlayText(title, titleId, action);
         if (actionBar != null && selectAnimatedEmojiDialog != null && selectAnimatedEmojiDialog.getContentView() instanceof SelectAnimatedEmojiDialog) {
             SimpleTextView textView = actionBar.getTitleTextView();
@@ -4166,6 +4198,36 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                             if (measuredDy > -1) {
                                 measuredDy = -1;
                             }
+                        }
+                    }
+
+                    // kgram OpenIM: enable top pull offset for conversation refresh (no archive required).
+                    if (org.telegram.messenger.kgram.KgramTgBridge.enabled()
+                            && viewPage.dialogsType == DIALOGS_TYPE_DEFAULT
+                            && folderId == 0 && communityId == 0
+                            && isDragging) {
+                        int firstPos = viewPage.layoutManager.findFirstVisibleItemPosition();
+                        if (dy < 0 && firstPos <= 0 && viewPage.listView.getViewOffset() == 0) {
+                            // start pull
+                            float ty = Math.min(PullForegroundDrawable.getMaxOverscroll(), -dy * 0.45f);
+                            viewPage.listView.setViewsOffset(ty);
+                            measuredDy = 0;
+                        } else if (viewPage.listView.getViewOffset() != 0) {
+                            float ty = viewPage.listView.getViewOffset();
+                            if (dy < 0) {
+                                float tk = 1f - (ty / PullForegroundDrawable.getMaxOverscroll());
+                                ty = Math.min(PullForegroundDrawable.getMaxOverscroll(), ty - dy * 0.35f * Math.max(0.2f, tk));
+                                measuredDy = 0;
+                            } else {
+                                ty -= dy;
+                                if (ty < 0) {
+                                    measuredDy = (int) ty;
+                                    ty = 0;
+                                } else {
+                                    measuredDy = 0;
+                                }
+                            }
+                            viewPage.listView.setViewsOffset(ty);
                         }
                     }
 
@@ -6944,6 +7006,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     @Override
     public void onResume() {
         super.onResume();
+        // kgram: no periodic/onResume dialog HTTP poll — realtime is WS; list REST only on pull-to-refresh / login.
+        if (folderId == 0 && communityId == 0 && !onlySelect
+                && org.telegram.messenger.kgram.KgramTgBridge.enabled()) {
+            try {
+                org.telegram.messenger.kgram.KgramNotifications.requestPermissionIfNeeded();
+                org.telegram.messenger.kgram.KgramPushService.ensureStarted(ApplicationLoader.applicationContext);
+            } catch (Throwable ignore) {
+            }
+        }
         if (dialogStoriesCell != null) {
             dialogStoriesCell.onResume();
         }
@@ -13163,6 +13234,55 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     }
 
     private void openWriteContacts() {
+        // kgram: also allow starting a chat by OpenIM userID (contacts may still be loading)
+        if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                && org.telegram.messenger.kgram.KgramSession.hasSession(ApplicationLoader.applicationContext)) {
+            org.telegram.ui.ActionBar.AlertDialog.Builder builder = new org.telegram.ui.ActionBar.AlertDialog.Builder(getParentActivity());
+            builder.setTitle(LocaleController.getString(R.string.NewMessageTitle));
+            final org.telegram.ui.Components.EditTextBoldCursor input = new org.telegram.ui.Components.EditTextBoldCursor(getParentActivity());
+            input.setHint("OpenIM userID 或从通讯录选人");
+            input.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16);
+            input.setSingleLine(true);
+            input.setPadding(AndroidUtilities.dp(4), AndroidUtilities.dp(8), AndroidUtilities.dp(4), AndroidUtilities.dp(8));
+            builder.setView(input);
+            builder.setPositiveButton("打开会话", (d, w) -> {
+                String peer = input.getText() != null ? input.getText().toString().trim() : "";
+                if (peer.length() == 0) {
+                    Bundle args = new Bundle();
+                    args.putBoolean("destroyAfterSelect", true);
+                    presentFragment(new ContactsActivity(args));
+                    return;
+                }
+                long peerId = org.telegram.messenger.kgram.KgramTgBridge.parseUserId(peer);
+                if (peerId == 0) {
+                    org.telegram.ui.Components.BulletinFactory.of(DialogsActivity.this).createErrorBulletin("无效 userID").show();
+                    return;
+                }
+                org.telegram.tgnet.TLRPC.User existing = getMessagesController().getUser(peerId);
+                if (existing == null) {
+                    org.telegram.tgnet.TLRPC.TL_user user = new org.telegram.tgnet.TLRPC.TL_user();
+                    user.id = peerId;
+                    user.first_name = peer;
+                    user.last_name = "";
+                    user.access_hash = 1;
+                    user.status = new org.telegram.tgnet.TLRPC.TL_userStatusEmpty();
+                    user.contact = true;
+                    getMessagesController().putUser(user, false);
+                }
+                Bundle chatArgs = new Bundle();
+                chatArgs.putLong("user_id", peerId);
+                presentFragment(new ChatActivity(chatArgs));
+            });
+            builder.setNeutralButton("通讯录", (d, w) -> {
+                Bundle args = new Bundle();
+                args.putBoolean("destroyAfterSelect", true);
+                presentFragment(new ContactsActivity(args));
+            });
+            builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+            showDialog(builder.create());
+            AndroidUtilities.runOnUIThread(() -> AndroidUtilities.showKeyboard(input), 200);
+            return;
+        }
         Bundle args = new Bundle();
         args.putBoolean("destroyAfterSelect", true);
         presentFragment(new ContactsActivity(args));
