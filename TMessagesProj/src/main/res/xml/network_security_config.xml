@@ -7,13 +7,14 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- kgram demo API host: HTTPS only. System CAs are trusted. For a self-signed
-         demo cert, add the public cert as res/raw/kgram_demo_ca.pem and a
-         <certificates src="@raw/kgram_demo_ca" /> trust-anchor here. Never add a private key. -->
+    <!-- kgram demo API host: HTTPS only. Trust the pinned kgram demo CA
+         (res/raw/kgram_demo_ca.pem, public certificate only) in addition to
+         system CAs. Never place a private key in this tree. -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="false">8.136.150.149</domain>
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="@raw/kgram_demo_ca" />
         </trust-anchors>
     </domain-config>
 </network-security-config>
