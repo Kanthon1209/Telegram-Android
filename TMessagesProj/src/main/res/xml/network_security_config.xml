@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Keep cleartext for the in-app browser (http:// links), matching the previous
+         application usesCleartextTraffic flag. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!-- kgram demo API host: HTTPS only. Trust the pinned kgram demo CA
+         (res/raw/kgram_demo_ca.pem, public certificate only) in addition to
+         system CAs. Never place a private key in this tree. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">8.136.150.149</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/kgram_demo_ca" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
