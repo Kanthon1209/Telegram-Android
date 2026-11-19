@@ -159,7 +159,7 @@ public final class OpenIMChatClient {
         }
         if (lower.contains("failed to connect") || lower.contains("connection refused")
                 || lower.contains("connectexception") || lower.contains("enforced")) {
-            return "连不上服务器 " + KgramServerConfig.CHAT_API + "，请检查安全组是否放行 10008，以及手机网络";
+            return "连不上服务器 " + KgramServerConfig.CHAT_API + "，请检查网关 HTTPS 是否已部署、安全组是否放行 " + KgramServerConfig.GATEWAY_PORT + "，以及手机网络";
         }
         if (lower.contains("timeout") || lower.contains("timed out")) {
             return "连接超时，请稍后重试（检查 ECS 与安全组）";

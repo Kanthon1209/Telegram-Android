@@ -426,7 +426,7 @@ public final class KgramTgBridge {
         final String token = KgramSession.imToken(ctx);
         OpenIMImClient.getConversationsAsync(me, token, convRes -> {
             OpenIMImClient.getFriendsAsync(me, token, friendRes -> {
-                // Friends cover dialog titles; skip expensive getAllUsers on every refresh.
+                // Contacts are the authenticated user's friend list only (no server-wide user dump).
                 AndroidUtilities.runOnUIThread(() -> {
                     try {
                         applyDialogs(account, me, convRes, friendRes, null);
@@ -456,15 +456,13 @@ public final class KgramTgBridge {
         }
         final String me = KgramSession.userID(ctx);
         final String token = KgramSession.imToken(ctx);
-        OpenIMImClient.getFriendsAsync(me, token, friendRes -> {
-            OpenIMImClient.getAllUsersAsync(allRes -> AndroidUtilities.runOnUIThread(() -> {
-                try {
-                    applyContacts(account, me, friendRes, allRes);
-                } catch (Throwable t) {
-                    FileLog.e(t);
-                }
-            }));
-        });
+        OpenIMImClient.getFriendsAsync(me, token, friendRes -> AndroidUtilities.runOnUIThread(() -> {
+            try {
+                applyContacts(account, me, friendRes, null);
+            } catch (Throwable t) {
+                FileLog.e(t);
+            }
+        }));
         return true;
     }
 
@@ -719,9 +717,7 @@ public final class KgramTgBridge {
         // Always hit OpenIM REST for initial open / pull-to-refresh / older pagination (no polling).
         final long beforeSeq = initial ? 0L : Math.max(0L, (long) max_id);
         final int pullLimit = Math.max(count > 0 ? count : 50, 50);
-        OpenIMImClient.ensureFriendAsync(me, peer, ignored -> {
-            OpenIMImClient.ensureFriendAsync(peer, me, ignored2 -> {
-                OpenIMImClient.searchHistoryAsync(me, peer, token, beforeSeq, pullLimit, result -> {
+        OpenIMImClient.searchHistoryAsync(me, peer, token, beforeSeq, pullLimit, result -> {
                     java.util.ArrayList<String> ids = new java.util.ArrayList<>();
                     ids.add(convID);
                     OpenIMImClient.getHasReadAndMaxSeqAsync(me, ids, token, selfSeqRes -> {
@@ -862,8 +858,6 @@ public final class KgramTgBridge {
                         }));
                     });
                 });
-            });
-        });
         return true;
     }
 
@@ -900,9 +894,9 @@ public final class KgramTgBridge {
         MessagesController.getInstance(account).dialogMessage.put(dialogId, arr);
         NotificationCenter.getInstance(account).postNotificationName(NotificationCenter.didReceiveNewMessages, dialogId, arr, false, 0);
 
-        OpenIMImClient.ensureFriendAsync(me, peer, r1 -> {
-            OpenIMImClient.ensureFriendAsync(peer, me, r2 -> {
-                OpenIMImClient.sendTextAsync(me, peer, nick, textMsg, clientMsgID, result -> AndroidUtilities.runOnUIThread(() -> {
+        final String token = KgramSession.imToken(ctx);
+        OpenIMImClient.requestFriendAsync(peer, token, ignored -> {
+            OpenIMImClient.sendTextAsync(token, peer, nick, textMsg, clientMsgID, result -> AndroidUtilities.runOnUIThread(() -> {
                     MessagesController mc = MessagesController.getInstance(account);
                     if (!result.ok()) {
                         // Keep the same bubble; flip to error in-place (no delete+re-add pop).
@@ -1031,7 +1025,6 @@ public final class KgramTgBridge {
                     }
                     bumpDialogPreview(account, dialogId, new MessageObject(account, sent, true, false), seq);
                 }));
-            });
         });
         return true;
     }

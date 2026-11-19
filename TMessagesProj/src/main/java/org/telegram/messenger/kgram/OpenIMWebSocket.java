@@ -219,9 +219,10 @@ public final class OpenIMWebSocket {
         }
         try {
             String op = "kgram-" + UUID.randomUUID();
+            // Token must not appear in the URL; the gateway reads it from headers
+            // (or a post-connect auth frame). sendID / platform are not secrets.
             String url = KgramServerConfig.IM_WS
-                    + "/?sendID=" + enc(uid)
-                    + "&token=" + enc(tok)
+                    + "?sendID=" + enc(uid)
                     + "&platformID=" + KgramServerConfig.PLATFORM_ANDROID
                     + "&sdkType=js"
                     + "&isBackground=" + (isAppBackground() ? "true" : "false")
@@ -229,6 +230,9 @@ public final class OpenIMWebSocket {
                     + "&operationID=" + enc(op);
             dlog("connecting attempt=" + attempt + " bg=" + isAppBackground());
             WebSocket ws = new WebSocketFactory().setConnectionTimeout(12_000).createSocket(url);
+            ws.addHeader("Authorization", "Bearer " + tok);
+            ws.addHeader("token", tok);
+            ws.addHeader("sendID", uid);
             ws.addListener(new WebSocketAdapter() {
                 @Override
                 public void onConnected(WebSocket websocket, Map<String, List<String>> headers) {

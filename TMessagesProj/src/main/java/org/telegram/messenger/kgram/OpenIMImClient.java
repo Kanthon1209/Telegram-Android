@@ -25,14 +25,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * OpenIM Server REST helpers for demo: conversations, friends, history, send (admin).
+ * OpenIM / kgram-gateway REST helpers: conversations, friends, history, send.
+ * Privileged OpenIM admin APIs are never called from the client.
  */
 public final class OpenIMImClient {
     private OpenIMImClient() {}
 
+    private static final int ERR_ALREADY_FRIENDS = 1304;
     private static final ExecutorService EXEC = Executors.newFixedThreadPool(4);
-    private static volatile String cachedAdminToken;
-    private static volatile long cachedAdminAt;
 
     public interface Callback<T> {
         void onDone(ApiResult<T> result);
@@ -159,24 +159,25 @@ public final class OpenIMImClient {
         });
     }
 
-    public static void sendTextAsync(String sendID, String recvID, String senderNickname, String text, String clientMsgID, Callback<JSONObject> cb) {
+    public static void sendTextAsync(String imToken, String recvID, String senderNickname, String text, String clientMsgID, Callback<JSONObject> cb) {
         EXEC.execute(() -> {
             try {
-                cb.onDone(sendText(sendID, recvID, senderNickname, text, clientMsgID));
+                cb.onDone(sendText(imToken, recvID, senderNickname, text, clientMsgID));
             } catch (Exception e) {
                 cb.onDone(new ApiResult<>(-1, e.getMessage(), "", null, null));
             }
         });
     }
 
-    public static void sendTextAsync(String sendID, String recvID, String senderNickname, String text, Callback<JSONObject> cb) {
-        sendTextAsync(sendID, recvID, senderNickname, text, null, cb);
+    public static void sendTextAsync(String imToken, String recvID, String senderNickname, String text, Callback<JSONObject> cb) {
+        sendTextAsync(imToken, recvID, senderNickname, text, null, cb);
     }
 
-    public static void ensureFriendAsync(String ownerUserID, String friendUserID, Callback<Boolean> cb) {
+    /** Official friend request as the token subject. Does not force-add the peer. */
+    public static void requestFriendAsync(String toUserID, String imToken, Callback<Boolean> cb) {
         EXEC.execute(() -> {
             try {
-                cb.onDone(ensureFriend(ownerUserID, friendUserID));
+                cb.onDone(requestFriend(toUserID, imToken));
             } catch (Exception e) {
                 cb.onDone(new ApiResult<>(-1, e.getMessage(), "", false, null));
             }
@@ -187,16 +188,6 @@ public final class OpenIMImClient {
         EXEC.execute(() -> {
             try {
                 cb.onDone(getUsersInfo(userIDs, imToken));
-            } catch (Exception e) {
-                cb.onDone(new ApiResult<>(-1, e.getMessage(), "", null, null));
-            }
-        });
-    }
-
-    public static void getAllUsersAsync(Callback<List<UserInfo>> cb) {
-        EXEC.execute(() -> {
-            try {
-                cb.onDone(getAllUsers());
             } catch (Exception e) {
                 cb.onDone(new ApiResult<>(-1, e.getMessage(), "", null, null));
             }
@@ -230,20 +221,7 @@ public final class OpenIMImClient {
                                              Callback<Long> cb) {
         EXEC.execute(() -> {
             try {
-                List<String> ids = new ArrayList<>();
-                ids.add(conversationID);
-                ApiResult<Map<String, SeqInfo>> res = getHasReadAndMaxSeq(peerUserID, ids, imToken);
-                // User token may be rejected when ownerUserID != token subject — retry as admin.
-                if (res == null || !res.ok() || res.data == null || !res.data.containsKey(conversationID)) {
-                    try {
-                        String admin = getAdminToken();
-                        ApiResult<Map<String, SeqInfo>> adminRes = getHasReadAndMaxSeq(peerUserID, ids, admin);
-                        if (adminRes != null && adminRes.ok()) {
-                            res = adminRes;
-                        }
-                    } catch (Exception ignore) {
-                    }
-                }
+                ApiResult<Map<String, SeqInfo>> res = getPeerHasReadViaGateway(peerUserID, conversationID, imToken);
                 long has = 0;
                 if (res != null && res.ok() && res.data != null && res.data.containsKey(conversationID)) {
                     has = res.data.get(conversationID).hasReadSeq;
@@ -574,32 +552,24 @@ public final class OpenIMImClient {
         }
     }
 
-    public static ApiResult<JSONObject> sendText(String sendID, String recvID, String senderNickname, String text) throws Exception {
-        return sendText(sendID, recvID, senderNickname, text, null);
+    public static ApiResult<JSONObject> sendText(String imToken, String recvID, String senderNickname, String text) throws Exception {
+        return sendText(imToken, recvID, senderNickname, text, null);
     }
 
-    public static ApiResult<JSONObject> sendText(String sendID, String recvID, String senderNickname, String text, String clientMsgID) throws Exception {
-        String admin = getAdminToken();
+    /**
+     * Send a 1:1 text message through the kgram gateway. The gateway authenticates
+     * the user IM token and forces sendID to that user; the client cannot impersonate.
+     */
+    public static ApiResult<JSONObject> sendText(String imToken, String recvID, String senderNickname, String text, String clientMsgID) throws Exception {
         if (clientMsgID == null || clientMsgID.length() == 0) {
             clientMsgID = UUID.randomUUID().toString();
         }
-        JSONObject content = new JSONObject();
-        content.put("content", text);
         JSONObject body = new JSONObject();
-        body.put("sendID", sendID);
         body.put("recvID", recvID);
-        body.put("groupID", "");
-        body.put("senderNickname", senderNickname != null ? senderNickname : sendID);
-        body.put("senderFaceURL", "");
-        body.put("senderPlatformID", KgramServerConfig.PLATFORM_ANDROID);
-        body.put("content", content);
-        body.put("contentType", 101);
-        body.put("sessionType", 1);
-        body.put("isOnlineOnly", false);
-        body.put("notOfflinePush", false);
+        body.put("senderNickname", senderNickname != null ? senderNickname : "");
+        body.put("text", text);
         body.put("clientMsgID", clientMsgID);
-        Raw raw = post(KgramServerConfig.IM_API + "/msg/send_msg", body, admin);
-        // Ensure caller can always read back the clientMsgID we sent.
+        Raw raw = post(KgramServerConfig.GATEWAY_API + "/v1/messages/send", body, imToken);
         if (raw.data == null) {
             raw.data = new JSONObject();
         }
@@ -612,16 +582,47 @@ public final class OpenIMImClient {
         return new ApiResult<>(raw.errCode, raw.errMsg, raw.errDlt, raw.data, raw.raw);
     }
 
-    public static ApiResult<Boolean> ensureFriend(String ownerUserID, String friendUserID) throws Exception {
-        String admin = getAdminToken();
-        JSONArray ids = new JSONArray();
-        ids.put(friendUserID);
+    /**
+     * Official friend request as the logged-in user (user token). Already-friends is success.
+     * Does not import the current user onto the peer's friend list.
+     */
+    public static ApiResult<Boolean> requestFriend(String toUserID, String imToken) throws Exception {
         JSONObject body = new JSONObject();
-        body.put("ownerUserID", ownerUserID);
-        body.put("friendUserIDs", ids);
-        Raw raw = post(KgramServerConfig.IM_API + "/friend/import_friend", body, admin);
-        // already friends may still return 0
-        return new ApiResult<>(raw.errCode, raw.errMsg, raw.errDlt, raw.errCode == 0, raw.raw);
+        body.put("toUserID", toUserID);
+        Raw raw = post(KgramServerConfig.GATEWAY_API + "/v1/friends/request", body, imToken);
+        boolean ok = raw.errCode == 0 || raw.errCode == ERR_ALREADY_FRIENDS;
+        return new ApiResult<>(ok ? 0 : raw.errCode, raw.errMsg, raw.errDlt, ok, raw.raw);
+    }
+
+    private static ApiResult<Map<String, SeqInfo>> getPeerHasReadViaGateway(String peerUserID, String conversationID, String imToken) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("peerUserID", peerUserID);
+        body.put("conversationID", conversationID);
+        Raw raw = post(KgramServerConfig.GATEWAY_API + "/v1/conversations/peer-read", body, imToken);
+        if (raw.errCode != 0) {
+            return new ApiResult<>(raw.errCode, raw.errMsg, raw.errDlt, null, raw.raw);
+        }
+        Map<String, SeqInfo> map = new HashMap<>();
+        if (raw.data != null) {
+            JSONObject seqs = raw.data.optJSONObject("seqs");
+            if (seqs != null) {
+                JSONArray names = seqs.names();
+                if (names != null) {
+                    for (int i = 0; i < names.length(); i++) {
+                        String cid = names.getString(i);
+                        JSONObject info = seqs.optJSONObject(cid);
+                        if (info == null) continue;
+                        SeqInfo s = new SeqInfo();
+                        s.conversationID = cid;
+                        s.maxSeq = info.optLong("maxSeq");
+                        s.hasReadSeq = info.optLong("hasReadSeq");
+                        s.maxSeqTime = info.optLong("maxSeqTime");
+                        map.put(cid, s);
+                    }
+                }
+            }
+        }
+        return new ApiResult<>(0, "", "", map, raw.raw);
     }
 
     public static ApiResult<List<UserInfo>> getUsersInfo(List<String> userIDs, String imToken) throws Exception {
@@ -646,37 +647,6 @@ public final class OpenIMImClient {
                     u.nickname = o.optString("nickname");
                     u.faceURL = o.optString("faceURL");
                     list.add(u);
-                }
-            }
-        }
-        return new ApiResult<>(0, "", "", list, raw.raw);
-    }
-
-    /** Demo: list registered IM users via admin so contacts are not empty. */
-    public static ApiResult<List<UserInfo>> getAllUsers() throws Exception {
-        String admin = getAdminToken();
-        JSONObject pagination = new JSONObject();
-        pagination.put("pageNumber", 1);
-        pagination.put("showNumber", 200);
-        JSONObject body = new JSONObject();
-        body.put("pagination", pagination);
-        Raw raw = post(KgramServerConfig.IM_API + "/user/get_users", body, admin);
-        if (raw.errCode != 0) {
-            return new ApiResult<>(raw.errCode, raw.errMsg, raw.errDlt, null, raw.raw);
-        }
-        List<UserInfo> list = new ArrayList<>();
-        if (raw.data != null) {
-            JSONArray users = raw.data.optJSONArray("users");
-            if (users != null) {
-                for (int i = 0; i < users.length(); i++) {
-                    JSONObject o = users.getJSONObject(i);
-                    UserInfo u = new UserInfo();
-                    u.userID = o.optString("userID");
-                    u.nickname = o.optString("nickname");
-                    u.faceURL = o.optString("faceURL");
-                    if (u.userID != null && u.userID.length() > 0) {
-                        list.add(u);
-                    }
                 }
             }
         }
@@ -1002,23 +972,6 @@ public final class OpenIMImClient {
         }
         fis.close();
         return buf;
-    }
-
-    private static synchronized String getAdminToken() throws Exception {
-        long now = System.currentTimeMillis();
-        if (cachedAdminToken != null && now - cachedAdminAt < 50 * 60 * 1000L) {
-            return cachedAdminToken;
-        }
-        JSONObject body = new JSONObject();
-        body.put("secret", KgramServerConfig.OPENIM_SECRET);
-        body.put("userID", KgramServerConfig.OPENIM_ADMIN_USER);
-        Raw raw = post(KgramServerConfig.IM_API + "/auth/get_admin_token", body, null);
-        if (raw.errCode != 0 || raw.data == null) {
-            throw new IllegalStateException("admin token failed: " + raw.errCode + " " + raw.errMsg);
-        }
-        cachedAdminToken = raw.data.optString("token");
-        cachedAdminAt = now;
-        return cachedAdminToken;
     }
 
     private static String extractText(JSONObject msg) {
