@@ -52,6 +52,7 @@ import org.telegram.messenger.R;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.messenger.kgram.KgramServerConfig;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
@@ -1533,7 +1534,9 @@ public class ChatAvatarContainer extends FrameLayout implements FactorAnimator.T
             if (parentFragment.getChatMode() == ChatActivity.MODE_SAVED) {
                 NotificationCenter.getInstance(currentAccount).addWeakObserver(this, NotificationCenter.savedMessagesDialogsUpdate);
             }
-            currentConnectionState = ConnectionsManager.getInstance(currentAccount).getConnectionState();
+            currentConnectionState = KgramServerConfig.USE_OPENIM_AUTH
+                    ? ConnectionsManager.ConnectionStateConnected
+                    : ConnectionsManager.getInstance(currentAccount).getConnectionState();
             updateCurrentConnectionState();
         }
         if (emojiStatusDrawable != null) {
@@ -1565,7 +1568,9 @@ public class ChatAvatarContainer extends FrameLayout implements FactorAnimator.T
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.didUpdateConnectionState) {
-            int state = ConnectionsManager.getInstance(currentAccount).getConnectionState();
+            int state = KgramServerConfig.USE_OPENIM_AUTH
+                    ? ConnectionsManager.ConnectionStateConnected
+                    : ConnectionsManager.getInstance(currentAccount).getConnectionState();
             if (currentConnectionState != state) {
                 currentConnectionState = state;
                 updateCurrentConnectionState();
@@ -1585,7 +1590,10 @@ public class ChatAvatarContainer extends FrameLayout implements FactorAnimator.T
 
     private void updateCurrentConnectionState() {
         String title = null;
-        if (currentConnectionState == ConnectionsManager.ConnectionStateWaitingForNetwork) {
+        // kgram OpenIM: never replace chat subtitle with MTProto Waiting/Connecting/Updating.
+        if (KgramServerConfig.USE_OPENIM_AUTH) {
+            currentConnectionState = ConnectionsManager.ConnectionStateConnected;
+        } else if (currentConnectionState == ConnectionsManager.ConnectionStateWaitingForNetwork) {
             title = getString(R.string.WaitingForNetwork);
         } else if (currentConnectionState == ConnectionsManager.ConnectionStateConnecting) {
             title = getString(R.string.Connecting);

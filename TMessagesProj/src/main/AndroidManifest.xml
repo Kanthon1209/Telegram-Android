@@ -407,6 +407,39 @@
                   android:excludeFromRecents="true"
                 android:theme="@style/Theme.TMessages.TransparentWithAlerts"/>
 
+        <service
+            android:name="org.telegram.messenger.kgram.KgramPushService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- kgram OpenIM auth + main + chat -->
+        <activity
+            android:name="org.telegram.ui.kgram.KgramLoginActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+            android:theme="@style/Theme.TMessages.Start"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+        <activity
+            android:name="org.telegram.ui.kgram.KgramRegisterActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+            android:theme="@style/Theme.TMessages.Start"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+        <activity
+            android:name="org.telegram.ui.kgram.KgramMainActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+            android:theme="@style/Theme.TMessages.Start"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"/>
+        <activity
+            android:name="org.telegram.ui.kgram.KgramChatActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+            android:theme="@style/Theme.TMessages.Start"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false"
+            android:parentActivityName="org.telegram.ui.kgram.KgramMainActivity"/>
+
         <receiver
             android:name=".AutoMessageHeardReceiver"
             android:exported="false">

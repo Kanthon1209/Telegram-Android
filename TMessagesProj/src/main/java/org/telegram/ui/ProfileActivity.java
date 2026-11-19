@@ -13062,6 +13062,40 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 }
                 avatarsViewPager.addUploadingImage(uploadingImageLocation = ImageLocation.getForLocal(avatarBig), ImageLocation.getForLocal(avatar));
                 showAvatarProgress(true, false);
+                // kgram: upload avatar to OpenIM object store + update_user_info(faceURL)
+                if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                        && userId == getUserConfig().getClientUserId()
+                        && org.telegram.messenger.kgram.KgramSession.hasSession(org.telegram.messenger.ApplicationLoader.applicationContext)
+                        && bigSize != null) {
+                    java.io.File bigFile = FileLoader.getInstance(currentAccount).getPathToAttach(bigSize, true);
+                    String path = bigFile != null ? bigFile.getAbsolutePath() : null;
+                    final TLRPC.FileLocation uploadingBig = avatarBig;
+                    final TLRPC.FileLocation uploadingSmall = avatar;
+                    org.telegram.messenger.kgram.KgramTgBridge.uploadSelfAvatar(currentAccount, path, bigSize, smallSize, ok -> AndroidUtilities.runOnUIThread(() -> {
+                        allowPullingDown = !AndroidUtilities.isTablet() && !isInLandscapeMode && avatarImage.getImageReceiver().hasNotThumb() && !AndroidUtilities.isAccessibilityScreenReaderEnabled();
+                        avatar = null;
+                        avatarBig = null;
+                        if (avatarsViewPager != null) {
+                            avatarsViewPager.scrolledByUser = true;
+                            if (uploadingImageLocation != null) {
+                                avatarsViewPager.removeUploadingImage(uploadingImageLocation);
+                            }
+                            avatarsViewPager.setCreateThumbFromParent(false);
+                        }
+                        uploadingImageLocation = null;
+                        updateProfileData(true);
+                        showAvatarProgress(false, true);
+                        getNotificationCenter().postNotificationName(NotificationCenter.updateInterfaces, MessagesController.UPDATE_MASK_ALL);
+                        getNotificationCenter().postNotificationName(NotificationCenter.mainUserInfoChanged);
+                        getUserConfig().saveConfig(true);
+                        if (!ok && getParentActivity() != null) {
+                            try {
+                                BulletinFactory.of(ProfileActivity.this).createErrorBulletin("头像上传失败，请重试").show();
+                            } catch (Throwable ignore) {
+                            }
+                        }
+                    }));
+                }
             }
             actionBar.createMenu().requestLayout();
         });

@@ -11,6 +11,7 @@ package org.telegram.messenger;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.util.Log;
 
 public class AppStartReceiver extends BroadcastReceiver {
 
@@ -23,6 +24,16 @@ public class AppStartReceiver extends BroadcastReceiver {
                     SharedConfig.saveConfig();
                 }
                 ApplicationLoader.startPushService();
+                // kgram OpenIM: also restart FGS + WS after reboot when session exists.
+                try {
+                    if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH
+                            && org.telegram.messenger.kgram.KgramSession.hasSession(context)) {
+                        Log.e("kgram-fgs", "BOOT_COMPLETED → ensure KgramPushService");
+                        org.telegram.messenger.kgram.KgramPushService.ensureStarted(context);
+                    }
+                } catch (Throwable t) {
+                    FileLog.e(t);
+                }
             });
         }
     }
