@@ -22,6 +22,7 @@ public final class KgramAuthPolicyTest {
         testPasswordLoginRouting();
         testDemoFlagAllowsOnlyMatchingCodeAndStillHidesItFromCopy();
         testProductionRegistrationUsesEnteredCodeNeverInjectsDemo();
+        testProductionOpenDoesNotSubstituteDemoWhenCodeMissing();
         testStaticSources(repoRoot.toAbsolutePath().normalize());
         if (failures > 0) {
             System.err.println("FAILED: " + failures + " assertion(s)");
@@ -92,6 +93,20 @@ public final class KgramAuthPolicyTest {
         // policy must not auto-substitute it, and default production has demo off
         // so the app never pre-fills it. We do not special-case the digits here.
         assertEquals("666666", p.resolveRegisterVerifyCode("666666"));
+    }
+
+
+    private static void testProductionOpenDoesNotSubstituteDemoWhenCodeMissing() {
+        // ALLOW_PRODUCTION_REGISTRATION=true, demo flag off: a missing/blank
+        // verify code must not be replaced by DEMO_SUPER_VERIFY_CODE.
+        KgramAuthPolicy p = new KgramAuthPolicy(new KgramAuthPolicy.Config(false, "666666", true));
+        assertTrue(p.isProductionRegistrationOpen());
+        assertFalse(p.isDemoSuperVerifyEnabled());
+        assertNull("null must not become demo default", p.resolveRegisterVerifyCode(null));
+        assertNull("empty must not become demo default", p.resolveRegisterVerifyCode(""));
+        assertNull("whitespace must not become demo default", p.resolveRegisterVerifyCode("   "));
+        String resolvedEmpty = p.resolveRegisterVerifyCode("");
+        assertFalse("empty must not equal demo code", "666666".equals(resolvedEmpty));
     }
 
     private static void testStaticSources(Path root) throws IOException {
