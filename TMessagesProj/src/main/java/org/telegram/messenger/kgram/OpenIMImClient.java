@@ -1012,6 +1012,13 @@ public final class OpenIMImClient {
         String raw;
     }
 
+    private static Raw notifyIfAuthExpired(Raw raw) {
+        if (raw != null) {
+            KgramSessionExpiry.handleFromBackground(raw.errCode);
+        }
+        return raw;
+    }
+
     private static Raw post(String urlStr, JSONObject body, String token) throws Exception {
         HttpURLConnection conn = null;
         try {
@@ -1040,7 +1047,7 @@ public final class OpenIMImClient {
                 raw.errCode = code;
                 raw.errMsg = "HTTP " + code;
                 raw.errDlt = "";
-                return raw;
+                return notifyIfAuthExpired(raw);
             }
             raw.raw = readAll(is);
             JSONObject root = new JSONObject(raw.raw);
@@ -1056,7 +1063,7 @@ public final class OpenIMImClient {
                     raw.data.put("value", d);
                 }
             }
-            return raw;
+            return notifyIfAuthExpired(raw);
         } finally {
             if (conn != null) {
                 conn.disconnect();

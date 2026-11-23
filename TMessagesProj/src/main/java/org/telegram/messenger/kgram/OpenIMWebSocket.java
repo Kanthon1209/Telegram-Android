@@ -329,14 +329,22 @@ public final class OpenIMWebSocket {
                 if ("pong".equals(obj.optString("type"))) {
                     return;
                 }
-                if (!obj.has("reqIdentifier") && obj.optInt("errCode", 0) == 0 && !obj.has("data")) {
+                int payloadErr = obj.optInt("errCode", 0);
+                if (KgramTokenPolicy.requiresReLogin(payloadErr)) {
+                    elog("ws auth expired errCode=" + payloadErr, null);
+                    running = false;
+                    KgramSessionExpiry.handleFromBackground(payloadErr);
+                    return;
+                }
+                if (!obj.has("reqIdentifier") && payloadErr == 0 && !obj.has("data")) {
                     dlog("handshake ok");
                     return;
                 }
                 int reqId = obj.optInt("reqIdentifier", 0);
                 if (reqId == WS_KICK) {
                     elog("kicked", null);
-                    scheduleReconnect(websocket, attempt, "kicked");
+                    running = false;
+                    KgramSessionExpiry.handleFromBackground(KgramTokenPolicy.ERR_TOKEN_KICKED);
                     return;
                 }
                 if (reqId != WS_PUSH_MSG) {
