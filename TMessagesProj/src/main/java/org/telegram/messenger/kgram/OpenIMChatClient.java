@@ -116,7 +116,7 @@ public final class OpenIMChatClient {
             case ERR_ALREADY_REGISTERED:
                 return "该手机号已注册，请改用「登录」";
             case ERR_VERIFY_CODE:
-                return "验证码不正确（演示请用 " + KgramServerConfig.SUPER_VERIFY_CODE + "）";
+                return "验证码不正确";
             default: {
                 String detail = result.errDlt != null && result.errDlt.length() > 0 ? result.errDlt : result.errMsg;
                 if (detail == null || detail.length() == 0) {
@@ -173,10 +173,10 @@ public final class OpenIMChatClient {
         return "网络错误，请检查网络后重试";
     }
 
-    public static void registerAsync(String areaCode, String phoneNumber, String password, String nickname, Callback cb) {
+    public static void registerAsync(String areaCode, String phoneNumber, String password, String nickname, String verifyCode, Callback cb) {
         EXEC.execute(() -> {
             try {
-                cb.onDone(register(areaCode, phoneNumber, password, nickname));
+                cb.onDone(register(areaCode, phoneNumber, password, nickname, verifyCode));
             } catch (Exception e) {
                 cb.onDone(fromException(e));
             }
@@ -207,12 +207,16 @@ public final class OpenIMChatClient {
         return new Result(ERR_NETWORK, msg, "", null, null, null, null);
     }
 
-    public static Result register(String areaCode, String phoneNumber, String password, String nickname) throws Exception {
+    public static Result register(String areaCode, String phoneNumber, String password, String nickname, String verifyCode) throws Exception {
         String ac = normalizeAreaCode(areaCode);
         String phone = normalizePhone(phoneNumber);
         String nick = nickname != null ? nickname.trim() : "";
         if (nick.length() == 0) {
             nick = "kgram_" + phone;
+        }
+        String code = verifyCode != null ? verifyCode.trim() : "";
+        if (code.length() == 0) {
+            return new Result(ERR_VERIFY_CODE, "verify code required", "", null, null, null, null);
         }
 
         JSONObject user = new JSONObject();
@@ -222,7 +226,8 @@ public final class OpenIMChatClient {
         user.put("password", password != null ? password : "");
 
         JSONObject body = new JSONObject();
-        body.put("verifyCode", KgramServerConfig.SUPER_VERIFY_CODE);
+        // Caller supplies the code. Never inject a hardcoded demo super-code here.
+        body.put("verifyCode", code);
         body.put("platform", KgramServerConfig.PLATFORM_ANDROID);
         body.put("autoLogin", true);
         body.put("user", user);

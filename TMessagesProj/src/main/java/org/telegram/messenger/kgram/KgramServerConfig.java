@@ -29,8 +29,23 @@ public final class KgramServerConfig {
     public static final String IM_WS = "wss://" + GATEWAY_HOST + ":" + GATEWAY_PORT + "/v1/ws";
     public static final String MINIO = GATEWAY_API + "/objects";
 
-    /** OpenIM Chat demo super verify code (verifyCode.superCode). */
-    public static final String SUPER_VERIFY_CODE = "666666";
+    /**
+     * Opt-in demo only. Default false: production builds must not accept,
+     * display, or auto-send a hardcoded super verification code.
+     */
+    public static final boolean ALLOW_DEMO_SUPER_VERIFY = false;
+
+    /**
+     * Used only when {@link #ALLOW_DEMO_SUPER_VERIFY} is true.
+     * Never shown in the production UI and never injected on the production path.
+     */
+    public static final String DEMO_SUPER_VERIFY_CODE = "666666";
+
+    /**
+     * Set true only when a real Chat /account/code/send (SMS or equivalent)
+     * path is deployed. Default false — do not pretend SMS is available.
+     */
+    public static final boolean ALLOW_PRODUCTION_REGISTRATION = false;
 
     /** Android platform id in OpenIM Chat. */
     public static final int PLATFORM_ANDROID = 2;
