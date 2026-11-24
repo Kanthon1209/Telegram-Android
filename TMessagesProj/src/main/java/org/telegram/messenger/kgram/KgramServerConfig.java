@@ -30,14 +30,16 @@ public final class KgramServerConfig {
     public static final String MINIO = GATEWAY_API + "/objects";
 
     /**
-     * Opt-in demo only. Default false: production builds must not accept,
-     * display, or auto-send a hardcoded super verification code.
+     * Demo unified verification code is enabled: registration accepts
+     * {@link #DEMO_SUPER_VERIFY_CODE} (666666). This is a kgram demo policy,
+     * not Telegram official "Test Backend".
      */
-    public static final boolean ALLOW_DEMO_SUPER_VERIFY = false;
+    public static final boolean ALLOW_DEMO_SUPER_VERIFY = true;
 
     /**
-     * Used only when {@link #ALLOW_DEMO_SUPER_VERIFY} is true.
-     * Never shown in the production UI and never injected on the production path.
+     * Unified demo phone verification code, used only when
+     * {@link #ALLOW_DEMO_SUPER_VERIFY} is true. Shown as a register-page hint;
+     * never auto-injected if the field is left blank, and never used on login.
      */
     public static final String DEMO_SUPER_VERIFY_CODE = "666666";
 

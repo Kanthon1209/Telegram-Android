@@ -1132,7 +1132,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
     }
 
     private BaseFragment getClientNotActivatedFragment() {
-        // kgram: skip IntroActivity welcome pages — go straight to phone login.
+        // kgram: skip IntroActivity; LoginActivity immediately opens the
+        // account-password page (KgramLoginActivity), not official phone/SMS login.
         if (org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH) {
             return new LoginActivity();
         }
