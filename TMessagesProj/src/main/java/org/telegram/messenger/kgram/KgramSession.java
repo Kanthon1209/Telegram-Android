@@ -67,6 +67,7 @@ public final class KgramSession {
                 .putString("imWs", KgramServerConfig.IM_WS)
                 .putString("chatApi", KgramServerConfig.CHAT_API)
                 .apply();
+        KgramSessionExpiry.resetAfterLogin();
     }
 
     public static void clear(Context ctx) {

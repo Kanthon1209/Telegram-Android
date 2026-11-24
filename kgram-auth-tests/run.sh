@@ -9,5 +9,8 @@ mkdir -p "$OUT"
 javac --release 17 -encoding UTF-8 -d "$OUT" \
   "$ROOT/TMessagesProj/src/main/java/org/telegram/messenger/kgram/KgramServerConfig.java" \
   "$ROOT/TMessagesProj/src/main/java/org/telegram/messenger/kgram/KgramAuthPolicy.java" \
-  "$ROOT/kgram-auth-tests/KgramAuthPolicyTest.java"
+  "$ROOT/TMessagesProj/src/main/java/org/telegram/messenger/kgram/KgramTokenPolicy.java" \
+  "$ROOT/kgram-auth-tests/KgramAuthPolicyTest.java" \
+  "$ROOT/kgram-auth-tests/KgramTokenPolicyTest.java"
 java -cp "$OUT" KgramAuthPolicyTest "$ROOT"
+java -cp "$OUT" KgramTokenPolicyTest
