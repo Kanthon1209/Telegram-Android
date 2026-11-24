@@ -370,25 +370,24 @@ public class KgramMainActivity extends FragmentActivity {
     private void startChatWithPeer(final String peerUserID) {
         progressView.setVisibility(View.VISIBLE);
         final String me = KgramSession.userID(this);
-        OpenIMImClient.ensureFriendAsync(me, peerUserID, r1 -> AndroidUtilities.runOnUIThread(() -> {
-            OpenIMImClient.ensureFriendAsync(peerUserID, me, r2 -> AndroidUtilities.runOnUIThread(() -> {
-                List<String> ids = new ArrayList<>();
-                ids.add(peerUserID);
-                OpenIMImClient.getUsersInfoAsync(ids, KgramSession.imToken(this), info -> AndroidUtilities.runOnUIThread(() -> {
-                    progressView.setVisibility(View.GONE);
-                    String name = peerUserID;
-                    if (info.ok() && info.data != null && !info.data.isEmpty()) {
-                        OpenIMImClient.UserInfo u = info.data.get(0);
-                        if (u.nickname != null && u.nickname.length() > 0) {
-                            name = u.nickname;
-                        }
+        final String token = KgramSession.imToken(this);
+        OpenIMImClient.requestFriendAsync(peerUserID, token, r1 -> AndroidUtilities.runOnUIThread(() -> {
+            List<String> ids = new ArrayList<>();
+            ids.add(peerUserID);
+            OpenIMImClient.getUsersInfoAsync(ids, token, info -> AndroidUtilities.runOnUIThread(() -> {
+                progressView.setVisibility(View.GONE);
+                String name = peerUserID;
+                if (info.ok() && info.data != null && !info.data.isEmpty()) {
+                    OpenIMImClient.UserInfo u = info.data.get(0);
+                    if (u.nickname != null && u.nickname.length() > 0) {
+                        name = u.nickname;
                     }
-                    if (!r1.ok()) {
-                        FileLog.e("kgram ensureFriend me->peer " + r1.errCode + " " + r1.errMsg);
-                    }
-                    openChat(peerUserID, name);
-                    refresh();
-                }));
+                }
+                if (r1 == null || !r1.ok()) {
+                    FileLog.e("kgram requestFriend me->peer " + (r1 == null ? "null" : r1.errCode + " " + r1.errMsg));
+                }
+                openChat(peerUserID, name);
+                refresh();
             }));
         }));
     }

@@ -244,7 +244,7 @@ public class KgramChatActivity extends FragmentActivity {
         });
 
         setContentView(contentView);
-        OpenIMImClient.ensureFriendAsync(myId, peerId, r -> AndroidUtilities.runOnUIThread(() -> reload(true)));
+        OpenIMImClient.requestFriendAsync(peerId, KgramSession.imToken(this), r -> AndroidUtilities.runOnUIThread(() -> reload(true)));
     }
 
     @Override
@@ -263,7 +263,7 @@ public class KgramChatActivity extends FragmentActivity {
         if (actionBar != null) {
             actionBar.setSubtitle("sending…");
         }
-        OpenIMImClient.sendTextAsync(myId, peerId, myNick, text, result -> AndroidUtilities.runOnUIThread(() -> {
+        OpenIMImClient.sendTextAsync(KgramSession.imToken(this), peerId, myNick, text, result -> AndroidUtilities.runOnUIThread(() -> {
             if (!result.ok()) {
                 if (actionBar != null) {
                     actionBar.setSubtitle("send failed");

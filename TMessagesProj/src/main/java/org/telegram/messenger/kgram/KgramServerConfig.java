@@ -1,9 +1,13 @@
 package org.telegram.messenger.kgram;
 
 /**
- * kgram demo endpoints — OpenIM Chat on Aliyun ECS.
- * Registration/login must hit CHAT_API, not Telegram DCs.
- * Realtime: OpenIM msggateway WebSocket (sdkType=js). Send still admin REST for demo.
+ * kgram endpoints — traffic goes through the kgram gateway over HTTPS / WSS.
+ * The APK must not contain an OpenIM admin secret or call admin APIs.
+ *
+ * Demo TLS is not live on the ECS until a cert is installed and port 8443
+ * (or 443) is opened; see the gateway deploy README. Self-signed certs need
+ * a public certificate in res/raw plus a trust-anchor in the network
+ * security config.
  */
 public final class KgramServerConfig {
     private KgramServerConfig() {}
@@ -14,25 +18,39 @@ public final class KgramServerConfig {
      */
     public static final boolean USE_OPENIM_AUTH = true;
 
-    public static final String CHAT_API = "http://8.136.150.149:10008";
-    public static final String IM_API = "http://8.136.150.149:10002";
-    public static final String IM_WS = "ws://8.136.150.149:10001";
-    public static final String MINIO = "http://8.136.150.149:10005";
+    public static final String GATEWAY_HOST = "8.136.150.149";
+    public static final int GATEWAY_PORT = 8443;
 
-    /** OpenIM Chat demo super verify code (verifyCode.superCode). */
-    public static final String SUPER_VERIFY_CODE = "666666";
+    /** Gateway origin (HTTPS). */
+    public static final String GATEWAY_API = "https://" + GATEWAY_HOST + ":" + GATEWAY_PORT;
+
+    public static final String CHAT_API = GATEWAY_API + "/chat";
+    public static final String IM_API = GATEWAY_API + "/im";
+    public static final String IM_WS = "wss://" + GATEWAY_HOST + ":" + GATEWAY_PORT + "/v1/ws";
+    public static final String MINIO = GATEWAY_API + "/objects";
+
+    /**
+     * Opt-in demo only. Default false: production builds must not accept,
+     * display, or auto-send a hardcoded super verification code.
+     */
+    public static final boolean ALLOW_DEMO_SUPER_VERIFY = false;
+
+    /**
+     * Used only when {@link #ALLOW_DEMO_SUPER_VERIFY} is true.
+     * Never shown in the production UI and never injected on the production path.
+     */
+    public static final String DEMO_SUPER_VERIFY_CODE = "666666";
+
+    /**
+     * Set true only when a real Chat /account/code/send (SMS or equivalent)
+     * path is deployed. Default false — do not pretend SMS is available.
+     */
+    public static final boolean ALLOW_PRODUCTION_REGISTRATION = false;
 
     /** Android platform id in OpenIM Chat. */
     public static final int PLATFORM_ANDROID = 2;
 
     public static final String PREFS = "kgram_openim";
-
-    /**
-     * Demo-only: OpenIM server secret for admin token (send_msg / import_friend).
-     * Not for production — replace with app-server proxy later.
-     */
-    public static final String OPENIM_SECRET = "openIM123";
-    public static final String OPENIM_ADMIN_USER = "imAdmin";
 
     /**
      * @deprecated Polling removed — realtime is OpenIM WebSocket only.

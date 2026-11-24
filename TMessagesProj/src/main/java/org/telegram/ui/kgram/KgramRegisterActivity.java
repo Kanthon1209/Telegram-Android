@@ -19,7 +19,7 @@ import androidx.fragment.app.FragmentActivity;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
-import org.telegram.messenger.kgram.KgramServerConfig;
+import org.telegram.messenger.kgram.KgramAuthPolicy;
 import org.telegram.messenger.kgram.KgramSession;
 import org.telegram.messenger.kgram.OpenIMChatClient;
 import org.telegram.messenger.kgram.KgramTgBridge;
@@ -110,18 +110,25 @@ public class KgramRegisterActivity extends FragmentActivity {
         sub.setPadding(0, AndroidUtilities.dp(8), 0, AndroidUtilities.dp(16));
         content.addView(sub, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-        content.addView(label("验证码"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-        codeField = field(false);
-        codeField.setHint("默认 " + KgramServerConfig.SUPER_VERIFY_CODE);
-        codeField.setText(KgramServerConfig.SUPER_VERIFY_CODE);
-        codeField.setInputType(InputType.TYPE_CLASS_NUMBER);
-        content.addView(codeField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 4));
-
+        KgramAuthPolicy authPolicy = KgramAuthPolicy.app();
         TextView codeHint = new TextView(this);
-        codeHint.setText("演示环境已预填验证码，可直接下一步。");
         codeHint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
         codeHint.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
         codeHint.setPadding(0, 0, 0, AndroidUtilities.dp(12));
+        if (authPolicy.isRegistrationAvailable()) {
+            content.addView(label("验证码"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            codeField = field(false);
+            codeField.setHint("请输入验证码");
+            codeField.setInputType(InputType.TYPE_CLASS_NUMBER);
+            content.addView(codeField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 4));
+            if (authPolicy.isProductionRegistrationOpen()) {
+                codeHint.setText("请使用已发送到该手机号的验证码。");
+            } else {
+                codeHint.setText("演示验证已开启，请输入验证码。");
+            }
+        } else {
+            codeHint.setText(authPolicy.registrationUnavailableMessage());
+        }
         content.addView(codeHint, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         content.addView(label("昵称"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
@@ -185,6 +192,22 @@ public class KgramRegisterActivity extends FragmentActivity {
         root.addView(progressView, LayoutHelper.createFrame(40, 40, Gravity.CENTER));
 
         setContentView(root);
+        if (!KgramAuthPolicy.app().isRegistrationAvailable()) {
+            if (nickField != null) {
+                nickField.setEnabled(false);
+            }
+            if (passField != null) {
+                passField.setEnabled(false);
+            }
+            if (pass2Field != null) {
+                pass2Field.setEnabled(false);
+            }
+            if (nextBtn != null) {
+                nextBtn.setEnabled(false);
+                nextBtn.setAlpha(0.5f);
+                nextBtn.setText("暂不能注册");
+            }
+        }
     }
 
     private void openLogin() {
@@ -244,14 +267,20 @@ public class KgramRegisterActivity extends FragmentActivity {
             return;
         }
         clearError();
-        String code = codeField.getText() != null ? codeField.getText().toString().trim() : "";
+        KgramAuthPolicy policy = KgramAuthPolicy.app();
+        if (!policy.isRegistrationAvailable()) {
+            showFieldError(policy.registrationUnavailableMessage());
+            return;
+        }
+        String entered = (codeField != null && codeField.getText() != null) ? codeField.getText().toString().trim() : "";
+        String code = policy.resolveRegisterVerifyCode(entered);
+        if (code == null) {
+            showFieldError(policy.invalidVerifyCodeMessage());
+            return;
+        }
         String nick = nickField.getText() != null ? nickField.getText().toString().trim() : "";
         String password = passField.getText() != null ? passField.getText().toString() : "";
         String password2 = pass2Field.getText() != null ? pass2Field.getText().toString() : "";
-        if (!KgramServerConfig.SUPER_VERIFY_CODE.equals(code)) {
-            showFieldError("验证码不正确（演示默认 " + KgramServerConfig.SUPER_VERIFY_CODE + "）");
-            return;
-        }
         if (nick.length() == 0) {
             showFieldError("请填写昵称");
             return;
@@ -268,7 +297,7 @@ public class KgramRegisterActivity extends FragmentActivity {
         progressView.setVisibility(android.view.View.VISIBLE);
         nextBtn.setEnabled(false);
         nextBtn.setAlpha(0.5f);
-        OpenIMChatClient.registerAsync(areaCode, phone, password, nick, result -> AndroidUtilities.runOnUIThread(() -> {
+        OpenIMChatClient.registerAsync(areaCode, phone, password, nick, code, result -> AndroidUtilities.runOnUIThread(() -> {
             if (result.ok()) {
                 finishAuth(nick, result);
                 return;
