@@ -32,15 +32,17 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RadialProgressView;
 
 /**
- * OpenIM login: phone (from previous page) + password. Register is secondary.
+ * kgram login: account + password only.
+ * Phone number and verification code belong on the register page.
+ * The official Telegram test-DC switch is not shown here.
  */
 public class KgramLoginActivity extends FragmentActivity {
 
     public static final String EXTRA_AREA = "area";
     public static final String EXTRA_PHONE = "phone";
+    public static final String EXTRA_ACCOUNT = "account";
 
-    private String areaCode;
-    private String phone;
+    private EditTextBoldCursor accountField;
     private EditTextBoldCursor passField;
     private TextView errorView;
     private RadialProgressView progressView;
@@ -57,12 +59,7 @@ public class KgramLoginActivity extends FragmentActivity {
         } catch (Throwable ignore) {
         }
 
-        areaCode = OpenIMChatClient.normalizeAreaCode(getIntent().getStringExtra(EXTRA_AREA));
-        phone = OpenIMChatClient.normalizePhone(getIntent().getStringExtra(EXTRA_PHONE));
-        if (TextUtils.isEmpty(areaCode) || TextUtils.isEmpty(phone)) {
-            finish();
-            return;
-        }
+        KgramAuthPolicy policy = KgramAuthPolicy.app();
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
@@ -70,7 +67,7 @@ public class KgramLoginActivity extends FragmentActivity {
         ActionBar actionBar = new ActionBar(this);
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
-        actionBar.setTitle("登录");
+        actionBar.setTitle(policy.loginPageTitle());
         actionBar.setOccupyStatusBar(true);
         actionBar.setBackgroundColor(Theme.getColor(Theme.key_actionBarDefault));
         actionBar.setItemsColor(Theme.getColor(Theme.key_actionBarDefaultIcon), false);
@@ -100,17 +97,25 @@ public class KgramLoginActivity extends FragmentActivity {
         content.addView(title, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         TextView sub = new TextView(this);
-        sub.setText("账号  " + areaCode + " " + phone);
+        sub.setText(policy.loginPageSubtitle());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
         sub.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
         sub.setPadding(0, AndroidUtilities.dp(8), 0, AndroidUtilities.dp(20));
         content.addView(sub, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-        TextView passLabel = label("密码");
-        content.addView(passLabel, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        content.addView(label("账号"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        accountField = field(false);
+        accountField.setHint(policy.loginAccountHint());
+        accountField.setInputType(InputType.TYPE_CLASS_PHONE);
+        String prefill = prefillAccount(policy);
+        if (!TextUtils.isEmpty(prefill)) {
+            accountField.setText(prefill);
+        }
+        content.addView(accountField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 12));
 
+        content.addView(label("密码"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
         passField = field(true);
-        passField.setHint("输入密码");
+        passField.setHint(policy.loginPasswordHint());
         passField.setImeOptions(EditorInfo.IME_ACTION_DONE);
         passField.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -142,12 +147,11 @@ public class KgramLoginActivity extends FragmentActivity {
         content.addView(nextBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 28, 0, 0));
 
         TextView goRegister = new TextView(this);
-        KgramAuthPolicy authPolicy = KgramAuthPolicy.app();
-        if (authPolicy.shouldOfferRegisterFromLogin()) {
+        if (policy.shouldOfferRegisterFromLogin()) {
             goRegister.setText("没有账号？去注册");
             goRegister.setOnClickListener(v -> openRegister());
         } else {
-            goRegister.setText(authPolicy.registrationUnavailableMessage());
+            goRegister.setText(policy.registrationUnavailableMessage());
             goRegister.setOnClickListener(null);
         }
         goRegister.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2));
@@ -165,15 +169,44 @@ public class KgramLoginActivity extends FragmentActivity {
 
         setContentView(root);
         AndroidUtilities.runOnUIThread(() -> {
-            passField.requestFocus();
-            AndroidUtilities.showKeyboard(passField);
+            if (accountField.getText() == null || accountField.getText().length() == 0) {
+                accountField.requestFocus();
+                AndroidUtilities.showKeyboard(accountField);
+            } else {
+                passField.requestFocus();
+                AndroidUtilities.showKeyboard(passField);
+            }
         }, 200);
+    }
+
+    private String prefillAccount(KgramAuthPolicy policy) {
+        Intent intent = getIntent();
+        if (intent == null) {
+            return "";
+        }
+        String account = intent.getStringExtra(EXTRA_ACCOUNT);
+        if (!TextUtils.isEmpty(account)) {
+            return account;
+        }
+        String area = OpenIMChatClient.normalizeAreaCode(intent.getStringExtra(EXTRA_AREA));
+        String phone = OpenIMChatClient.normalizePhone(intent.getStringExtra(EXTRA_PHONE));
+        if (!TextUtils.isEmpty(area) && !TextUtils.isEmpty(phone)) {
+            return new KgramAuthPolicy.ParsedAccount(area, phone).display();
+        }
+        if (!TextUtils.isEmpty(phone)) {
+            return phone;
+        }
+        return "";
     }
 
     private void openRegister() {
         Intent i = new Intent(this, KgramRegisterActivity.class);
-        i.putExtra(KgramRegisterActivity.EXTRA_AREA, areaCode);
-        i.putExtra(KgramRegisterActivity.EXTRA_PHONE, phone);
+        KgramAuthPolicy.ParsedAccount parsed = KgramAuthPolicy.app().parseLoginAccount(
+                accountField.getText() != null ? accountField.getText().toString() : "");
+        if (parsed != null) {
+            i.putExtra(KgramRegisterActivity.EXTRA_AREA, parsed.areaCode);
+            i.putExtra(KgramRegisterActivity.EXTRA_PHONE, parsed.phone);
+        }
         startActivity(i);
         finish();
     }
@@ -220,20 +253,17 @@ public class KgramLoginActivity extends FragmentActivity {
         }
     }
 
-    private String resolveNickname(OpenIMChatClient.Result result) {
+    private String resolveNickname(OpenIMChatClient.Result result, String phone) {
         if (result != null && !TextUtils.isEmpty(result.nickname)) {
             return result.nickname.trim();
         }
         String existing = KgramSession.nickname(this);
         if (!TextUtils.isEmpty(existing) && !existing.equals(KgramSession.userID(this))) {
-            // keep a previously saved real nick when API did not return one
             if (!existing.startsWith("kgram_") || !existing.equals("kgram_" + phone)) {
                 return existing;
             }
-            // even phone-based fallback from prior session is better than inventing a new fake label
             return existing;
         }
-        // Local display fallback only — not presented as a server-fetched nick.
         return "kgram_" + phone;
     }
 
@@ -242,6 +272,13 @@ public class KgramLoginActivity extends FragmentActivity {
             return;
         }
         clearError();
+        KgramAuthPolicy policy = KgramAuthPolicy.app();
+        String account = accountField.getText() != null ? accountField.getText().toString() : "";
+        KgramAuthPolicy.ParsedAccount parsed = policy.parseLoginAccount(account);
+        if (parsed == null) {
+            showFieldError(policy.invalidLoginAccountMessage());
+            return;
+        }
         String password = passField.getText() != null ? passField.getText().toString() : "";
         if (password.length() < 6) {
             showFieldError("密码至少 6 位");
@@ -251,6 +288,8 @@ public class KgramLoginActivity extends FragmentActivity {
         progressView.setVisibility(android.view.View.VISIBLE);
         nextBtn.setEnabled(false);
         nextBtn.setAlpha(0.5f);
+        final String areaCode = parsed.areaCode;
+        final String phone = parsed.phone;
         OpenIMChatClient.loginAsync(areaCode, phone, password, result -> AndroidUtilities.runOnUIThread(() -> {
             busy = false;
             progressView.setVisibility(android.view.View.GONE);
@@ -261,7 +300,7 @@ public class KgramLoginActivity extends FragmentActivity {
                     alert("登录异常", "服务器未返回 userID / imToken");
                     return;
                 }
-                String nick = resolveNickname(result);
+                String nick = resolveNickname(result, phone);
                 KgramSession.save(this, areaCode, phone, nick, result.userID, result.imToken, result.chatToken);
                 KgramTgBridge.activateFromSession(this);
                 Intent i = new Intent(this, LaunchActivity.class);
@@ -271,7 +310,6 @@ public class KgramLoginActivity extends FragmentActivity {
                 return;
             }
             if (result.accountNotFound()) {
-                KgramAuthPolicy policy = KgramAuthPolicy.app();
                 AlertDialog.Builder notFound = new AlertDialog.Builder(this)
                         .setTitle("尚未注册")
                         .setMessage(policy.accountNotFoundMessage())

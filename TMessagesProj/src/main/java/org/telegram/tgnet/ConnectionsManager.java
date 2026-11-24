@@ -825,6 +825,11 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void switchBackend(boolean restart) {
+        // Official Telegram test-DC toggle. kgram never talks to those DCs.
+        if (kgramBlocksTelegramDc()) {
+            FileLog.d("kgram: ignore switchBackend; official Telegram DCs are disabled");
+            return;
+        }
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         preferences.edit().remove("language_showed2").commit();
         native_switchBackend(currentAccount, restart);

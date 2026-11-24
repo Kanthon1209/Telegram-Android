@@ -32,15 +32,15 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.RadialProgressView;
 
 /**
- * OpenIM register: verify code + nickname + password. Login is one tap away.
+ * kgram register: phone number is required; demo verify code is 666666.
  */
 public class KgramRegisterActivity extends FragmentActivity {
 
     public static final String EXTRA_AREA = "area";
     public static final String EXTRA_PHONE = "phone";
 
-    private String areaCode;
-    private String phone;
+    private EditTextBoldCursor areaField;
+    private EditTextBoldCursor phoneField;
     private EditTextBoldCursor codeField;
     private EditTextBoldCursor nickField;
     private EditTextBoldCursor passField;
@@ -60,11 +60,11 @@ public class KgramRegisterActivity extends FragmentActivity {
         } catch (Throwable ignore) {
         }
 
-        areaCode = OpenIMChatClient.normalizeAreaCode(getIntent().getStringExtra(EXTRA_AREA));
-        phone = OpenIMChatClient.normalizePhone(getIntent().getStringExtra(EXTRA_PHONE));
-        if (TextUtils.isEmpty(areaCode) || TextUtils.isEmpty(phone)) {
-            finish();
-            return;
+        KgramAuthPolicy authPolicy = KgramAuthPolicy.app();
+        String areaCode = OpenIMChatClient.normalizeAreaCode(getIntent() != null ? getIntent().getStringExtra(EXTRA_AREA) : null);
+        String phone = OpenIMChatClient.normalizePhone(getIntent() != null ? getIntent().getStringExtra(EXTRA_PHONE) : null);
+        if (TextUtils.isEmpty(areaCode)) {
+            areaCode = authPolicy.defaultAreaCode();
         }
 
         FrameLayout root = new FrameLayout(this);
@@ -73,7 +73,7 @@ public class KgramRegisterActivity extends FragmentActivity {
         ActionBar actionBar = new ActionBar(this);
         actionBar.setBackButtonImage(R.drawable.ic_ab_back);
         actionBar.setAllowOverlayTitle(true);
-        actionBar.setTitle("注册");
+        actionBar.setTitle(authPolicy.registerPageTitle());
         actionBar.setOccupyStatusBar(true);
         actionBar.setBackgroundColor(Theme.getColor(Theme.key_actionBarDefault));
         actionBar.setItemsColor(Theme.getColor(Theme.key_actionBarDefaultIcon), false);
@@ -84,7 +84,6 @@ public class KgramRegisterActivity extends FragmentActivity {
             @Override
             public void onItemClick(int id) {
                 if (id == -1) {
-                    // Prefer login page over stacking; back returns to phone page via login.
                     openLogin();
                 }
             }
@@ -104,28 +103,40 @@ public class KgramRegisterActivity extends FragmentActivity {
         content.addView(title, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         TextView sub = new TextView(this);
-        sub.setText("手机号  " + areaCode + " " + phone);
+        sub.setText("注册需要填写手机号。");
         sub.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
         sub.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
         sub.setPadding(0, AndroidUtilities.dp(8), 0, AndroidUtilities.dp(16));
         content.addView(sub, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
-        KgramAuthPolicy authPolicy = KgramAuthPolicy.app();
+        content.addView(label("手机号"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+        LinearLayout phoneRow = new LinearLayout(this);
+        phoneRow.setOrientation(LinearLayout.HORIZONTAL);
+        areaField = field(false);
+        areaField.setHint("+86");
+        areaField.setInputType(InputType.TYPE_CLASS_PHONE);
+        areaField.setText(areaCode);
+        phoneRow.addView(areaField, LayoutHelper.createLinear(88, LayoutHelper.WRAP_CONTENT, 0, 0, 8, 0));
+        phoneField = field(false);
+        phoneField.setHint(authPolicy.registerPhoneHint());
+        phoneField.setInputType(InputType.TYPE_CLASS_PHONE);
+        if (!TextUtils.isEmpty(phone)) {
+            phoneField.setText(phone);
+        }
+        phoneRow.addView(phoneField, LayoutHelper.createLinear(0, LayoutHelper.WRAP_CONTENT, 1f));
+        content.addView(phoneRow, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 12));
+
         TextView codeHint = new TextView(this);
         codeHint.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
         codeHint.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
         codeHint.setPadding(0, 0, 0, AndroidUtilities.dp(12));
-        if (authPolicy.isRegistrationAvailable()) {
+        if (authPolicy.registerShowsVerifyCode()) {
             content.addView(label("验证码"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
             codeField = field(false);
             codeField.setHint("请输入验证码");
             codeField.setInputType(InputType.TYPE_CLASS_NUMBER);
             content.addView(codeField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 4));
-            if (authPolicy.isProductionRegistrationOpen()) {
-                codeHint.setText("请使用已发送到该手机号的验证码。");
-            } else {
-                codeHint.setText("演示验证已开启，请输入验证码。");
-            }
+            codeHint.setText(authPolicy.registerVerifyCodeHint());
         } else {
             codeHint.setText(authPolicy.registrationUnavailableMessage());
         }
@@ -134,7 +145,9 @@ public class KgramRegisterActivity extends FragmentActivity {
         content.addView(label("昵称"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
         nickField = field(false);
         nickField.setHint("怎么称呼你");
-        nickField.setText("kgram_" + phone);
+        if (!TextUtils.isEmpty(phone)) {
+            nickField.setText("kgram_" + phone);
+        }
         content.addView(nickField, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 6, 0, 12));
 
         content.addView(label("设置密码"), LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
@@ -192,7 +205,13 @@ public class KgramRegisterActivity extends FragmentActivity {
         root.addView(progressView, LayoutHelper.createFrame(40, 40, Gravity.CENTER));
 
         setContentView(root);
-        if (!KgramAuthPolicy.app().isRegistrationAvailable()) {
+        if (!authPolicy.isRegistrationAvailable()) {
+            if (areaField != null) {
+                areaField.setEnabled(false);
+            }
+            if (phoneField != null) {
+                phoneField.setEnabled(false);
+            }
             if (nickField != null) {
                 nickField.setEnabled(false);
             }
@@ -210,10 +229,24 @@ public class KgramRegisterActivity extends FragmentActivity {
         }
     }
 
+    private String currentArea() {
+        return OpenIMChatClient.normalizeAreaCode(areaField != null && areaField.getText() != null
+                ? areaField.getText().toString() : "");
+    }
+
+    private String currentPhone() {
+        return OpenIMChatClient.normalizePhone(phoneField != null && phoneField.getText() != null
+                ? phoneField.getText().toString() : "");
+    }
+
     private void openLogin() {
         Intent i = new Intent(this, KgramLoginActivity.class);
-        i.putExtra(KgramLoginActivity.EXTRA_AREA, areaCode);
-        i.putExtra(KgramLoginActivity.EXTRA_PHONE, phone);
+        String area = currentArea();
+        String phone = currentPhone();
+        if (!TextUtils.isEmpty(area) && !TextUtils.isEmpty(phone)) {
+            i.putExtra(KgramLoginActivity.EXTRA_AREA, area);
+            i.putExtra(KgramLoginActivity.EXTRA_PHONE, phone);
+        }
         startActivity(i);
         finish();
     }
@@ -272,6 +305,12 @@ public class KgramRegisterActivity extends FragmentActivity {
             showFieldError(policy.registrationUnavailableMessage());
             return;
         }
+        String areaCode = currentArea();
+        String phone = currentPhone();
+        if (!policy.isValidPhone(areaCode, phone)) {
+            showFieldError("请填写正确的国家区号和手机号");
+            return;
+        }
         String entered = (codeField != null && codeField.getText() != null) ? codeField.getText().toString().trim() : "";
         String code = policy.resolveRegisterVerifyCode(entered);
         if (code == null) {
@@ -297,17 +336,18 @@ public class KgramRegisterActivity extends FragmentActivity {
         progressView.setVisibility(android.view.View.VISIBLE);
         nextBtn.setEnabled(false);
         nextBtn.setAlpha(0.5f);
-        OpenIMChatClient.registerAsync(areaCode, phone, password, nick, code, result -> AndroidUtilities.runOnUIThread(() -> {
+        final String submitArea = areaCode;
+        final String submitPhone = phone;
+        OpenIMChatClient.registerAsync(submitArea, submitPhone, password, nick, code, result -> AndroidUtilities.runOnUIThread(() -> {
             if (result.ok()) {
-                finishAuth(nick, result);
+                finishAuth(submitArea, submitPhone, nick, result);
                 return;
             }
             if (result.alreadyRegistered()) {
-                // already registered → try login with same password
-                OpenIMChatClient.loginAsync(areaCode, phone, password, result2 -> AndroidUtilities.runOnUIThread(() -> {
+                OpenIMChatClient.loginAsync(submitArea, submitPhone, password, result2 -> AndroidUtilities.runOnUIThread(() -> {
                     if (result2.ok()) {
                         String useNick = !TextUtils.isEmpty(result2.nickname) ? result2.nickname : nick;
-                        finishAuth(useNick, result2);
+                        finishAuth(submitArea, submitPhone, useNick, result2);
                         return;
                     }
                     busy = false;
@@ -335,7 +375,7 @@ public class KgramRegisterActivity extends FragmentActivity {
         }));
     }
 
-    private void finishAuth(String nick, OpenIMChatClient.Result result) {
+    private void finishAuth(String areaCode, String phone, String nick, OpenIMChatClient.Result result) {
         busy = false;
         progressView.setVisibility(android.view.View.GONE);
         nextBtn.setEnabled(true);

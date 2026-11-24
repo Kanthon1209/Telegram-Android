@@ -11047,7 +11047,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     sendLastLogsRow = rowCount++;
                     clearLogsRow = rowCount++;
                 }
-                if (BuildVars.DEBUG_VERSION) {
+                if (BuildVars.DEBUG_VERSION && !org.telegram.messenger.kgram.KgramServerConfig.USE_OPENIM_AUTH) {
                     switchBackendRow = rowCount++;
                 }
                 versionRow = rowCount++;

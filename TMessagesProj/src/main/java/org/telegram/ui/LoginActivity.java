@@ -564,12 +564,52 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         return super.onFragmentCreate();
     }
 
+    private boolean kgramAccountLoginOpened;
+
+    /** kgram main login path: account + password, not official phone + Test Backend. */
+    private boolean shouldOpenKgramAccountPasswordLogin() {
+        return KgramServerConfig.USE_OPENIM_AUTH && activityMode == MODE_LOGIN
+                && KgramAuthPolicy.app().shouldSkipOfficialPhoneLogin();
+    }
+
+    private void openKgramAccountPasswordLogin() {
+        if (kgramAccountLoginOpened) {
+            return;
+        }
+        Context ctx = getParentActivity();
+        if (ctx == null) {
+            ctx = getContext();
+        }
+        if (ctx == null) {
+            return;
+        }
+        kgramAccountLoginOpened = true;
+        Intent i = new Intent(ctx, KgramLoginActivity.class);
+        ctx.startActivity(i);
+        if (getParentActivity() != null) {
+            getParentActivity().finish();
+        }
+    }
+
     private View cachedFragmentView;
     @Override
     public View createView(Context context) {
         if (cachedFragmentView != null) {
             fragmentView = cachedFragmentView;
             cachedFragmentView = null;
+            return fragmentView;
+        }
+
+        // kgram: skip official phone/SMS login (and its Test Backend checkbox).
+        // The main path is KgramLoginActivity: account + password only.
+        if (shouldOpenKgramAccountPasswordLogin()) {
+            FrameLayout empty = new FrameLayout(context);
+            try {
+                empty.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+            } catch (Throwable ignore) {
+            }
+            fragmentView = empty;
+            AndroidUtilities.runOnUIThread(this::openKgramAccountPasswordLogin);
             return fragmentView;
         }
 
@@ -2525,7 +2565,9 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                 });
             }
 
-            final boolean allowTestBackend = (BuildVars.DEBUG_VERSION || TEST_BACKEND_IN_STORE && !BuildConfig.BUNDLE) || getConnectionsManager().isTestBackend();
+            // Official "Test Backend" flips MTProto to Telegram test DCs. Hide it in kgram.
+            final boolean allowTestBackend = !KgramServerConfig.USE_OPENIM_AUTH
+                    && ((BuildVars.DEBUG_VERSION || TEST_BACKEND_IN_STORE && !BuildConfig.BUNDLE) || getConnectionsManager().isTestBackend());
             if (allowTestBackend && activityMode == MODE_LOGIN) {
                 testBackendCheckBox = new CheckBoxCell(context, 2);
                 testBackendCheckBox.setText(getString(R.string.DebugTestBackend), "", testBackend = getConnectionsManager().isTestBackend(), false);
