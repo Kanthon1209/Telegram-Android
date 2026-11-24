@@ -128,12 +128,12 @@ import org.telegram.messenger.AuthTokensHelper;
 import org.telegram.messenger.BillingController;
 import org.telegram.messenger.BuildConfig;
 import org.telegram.messenger.BuildVars;
+import org.telegram.messenger.kgram.KgramAuthPolicy;
 import org.telegram.messenger.kgram.KgramServerConfig;
 import org.telegram.messenger.kgram.KgramSession;
 import org.telegram.messenger.kgram.OpenIMChatClient;
 import org.telegram.ui.kgram.KgramMainActivity;
 import org.telegram.ui.kgram.KgramLoginActivity;
-import org.telegram.ui.kgram.KgramRegisterActivity;
 import org.telegram.messenger.CallReceiver;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.Emoji;
@@ -2064,7 +2064,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             titleView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
             titleView.setTypeface(AndroidUtilities.bold());
             if (KgramServerConfig.USE_OPENIM_AUTH && activityMode == MODE_LOGIN) {
-                titleView.setText("手机号登录 / 注册");
+                titleView.setText(KgramAuthPolicy.app().phonePageTitle());
             } else {
                 titleView.setText(getString(activityMode == MODE_CHANGE_PHONE_NUMBER ? R.string.ChangePhoneNewNumber : R.string.YourNumber));
             }
@@ -2095,7 +2095,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
 
             subtitleView = new LinkSpanDrawable.LinksTextView(context);
             if (KgramServerConfig.USE_OPENIM_AUTH && activityMode == MODE_LOGIN) {
-                subtitleView.setText("输入手机号后确认，可注册新账号或登录已有账号。演示验证码固定为 " + KgramServerConfig.SUPER_VERIFY_CODE + "。");
+                subtitleView.setText(KgramAuthPolicy.app().phonePageSubtitle());
             } else {
                 subtitleView.setText(getString(activityMode == MODE_CHANGE_PHONE_NUMBER ? R.string.ChangePhoneHelp : R.string.StartText));
             }
@@ -3199,13 +3199,25 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             if (KgramServerConfig.USE_OPENIM_AUTH && activityMode == MODE_LOGIN) {
                 final String areaCode = OpenIMChatClient.normalizeAreaCode(codeField.getText().toString());
                 final String phoneNumberOnly = OpenIMChatClient.normalizePhone(phoneField.getText().toString());
-                if (areaCode.length() < 2 || phoneNumberOnly.length() < 5) {
+                KgramAuthPolicy authPolicy = KgramAuthPolicy.app();
+                if (!authPolicy.isValidPhone(areaCode, phoneNumberOnly)) {
                     needShowAlert("提示", "请填写正确的国家区号和手机号");
                     return;
                 }
-                nextPressed = true;
-                needShowProgress(0);
-                showOpenIMAuthDialog(areaCode, phoneNumberOnly);
+                // v0.1.11: after a valid number, go straight to the password login page.
+                if (!authPolicy.shouldOpenPasswordLoginAfterPhoneConfirm()) {
+                    needShowAlert("提示", "登录流程不可用");
+                    return;
+                }
+                nextPressed = false;
+                Context ctx = getParentActivity();
+                if (ctx == null) {
+                    return;
+                }
+                Intent i = new Intent(ctx, KgramLoginActivity.class);
+                i.putExtra(KgramLoginActivity.EXTRA_AREA, areaCode);
+                i.putExtra(KgramLoginActivity.EXTRA_PHONE, phoneNumberOnly);
+                ctx.startActivity(i);
                 return;
             }
 
@@ -3756,47 +3768,6 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                     }
                 }
             }
-        }
-
-        /** kgram: choose Login or Register, then open dedicated screens. */
-        private void showOpenIMAuthDialog(final String areaCode, final String phoneNumber) {
-            if (getParentActivity() == null) {
-                nextPressed = false;
-                needHideProgress(false);
-                return;
-            }
-            Context ctx = getParentActivity();
-            AlertDialog.Builder builder = new AlertDialog.Builder(ctx);
-            builder.setTitle("kgram 账号");
-            builder.setMessage("手机号 " + areaCode + " " + phoneNumber + "\n\n请选择登录或注册（已拆分为独立页面）。");
-            builder.setNegativeButton(getString(R.string.Cancel), (d, w) -> {
-                nextPressed = false;
-                needHideProgress(false);
-            });
-            builder.setNeutralButton("登录", (d, w) -> {
-                nextPressed = false;
-                needHideProgress(false);
-                Intent i = new Intent(ctx, KgramLoginActivity.class);
-                i.putExtra(KgramLoginActivity.EXTRA_AREA, areaCode);
-                i.putExtra(KgramLoginActivity.EXTRA_PHONE, phoneNumber);
-                ctx.startActivity(i);
-            });
-            builder.setPositiveButton("注册", (d, w) -> {
-                nextPressed = false;
-                needHideProgress(false);
-                Intent i = new Intent(ctx, KgramRegisterActivity.class);
-                i.putExtra(KgramRegisterActivity.EXTRA_AREA, areaCode);
-                i.putExtra(KgramRegisterActivity.EXTRA_PHONE, phoneNumber);
-                ctx.startActivity(i);
-            });
-            AlertDialog dialog = builder.create();
-            dialog.setCanceledOnTouchOutside(false);
-            dialog.setOnCancelListener(d -> {
-                nextPressed = false;
-                needHideProgress(false);
-            });
-            showDialog(dialog);
-            needHideProgress(false);
         }
 
     }

@@ -19,6 +19,7 @@ import androidx.fragment.app.FragmentActivity;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.kgram.KgramAuthPolicy;
 import org.telegram.messenger.kgram.KgramSession;
 import org.telegram.messenger.kgram.OpenIMChatClient;
 import org.telegram.messenger.kgram.KgramTgBridge;
@@ -141,11 +142,17 @@ public class KgramLoginActivity extends FragmentActivity {
         content.addView(nextBtn, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 28, 0, 0));
 
         TextView goRegister = new TextView(this);
-        goRegister.setText("没有账号？去注册");
+        KgramAuthPolicy authPolicy = KgramAuthPolicy.app();
+        if (authPolicy.shouldOfferRegisterFromLogin()) {
+            goRegister.setText("没有账号？去注册");
+            goRegister.setOnClickListener(v -> openRegister());
+        } else {
+            goRegister.setText(authPolicy.registrationUnavailableMessage());
+            goRegister.setOnClickListener(null);
+        }
         goRegister.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText2));
         goRegister.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
         goRegister.setPadding(0, AndroidUtilities.dp(18), 0, 0);
-        goRegister.setOnClickListener(v -> openRegister());
         content.addView(goRegister, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
         scroll.addView(content);
@@ -264,12 +271,17 @@ public class KgramLoginActivity extends FragmentActivity {
                 return;
             }
             if (result.accountNotFound()) {
-                new AlertDialog.Builder(this)
+                KgramAuthPolicy policy = KgramAuthPolicy.app();
+                AlertDialog.Builder notFound = new AlertDialog.Builder(this)
                         .setTitle("尚未注册")
-                        .setMessage("该手机号还没有账号。")
-                        .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
-                        .setPositiveButton("去注册", (d, w) -> openRegister())
-                        .show();
+                        .setMessage(policy.accountNotFoundMessage())
+                        .setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+                if (policy.shouldOfferRegisterFromLogin()) {
+                    notFound.setPositiveButton("去注册", (d, w) -> openRegister());
+                } else {
+                    notFound.setPositiveButton(LocaleController.getString(R.string.OK), null);
+                }
+                notFound.show();
             } else {
                 showFieldError(OpenIMChatClient.friendlyMessage(result));
             }
